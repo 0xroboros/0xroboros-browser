@@ -186,6 +186,13 @@ const CommonOptions = .{
     // SPV verification (hnsd) becomes the default resolution path and DoH
     // drops to fallback.
     .{ .name = "hns_doh_url", .type = ?[:0]const u8 },
+    // DANE/TLSA checking for names resolved through the HNS lane (Lane D).
+    // Accepts "off" to disable; any other value (or unset) leaves it on.
+    // TRUSTED end-to-end: TLSA records ride the same DoH channel as A
+    // records, so this is only as strong as the resolver answering. Lane S
+    // (hnsd SPV) upgrades the record channel to local verification. ICANN
+    // names never enter this path.
+    .{ .name = "hns_dane", .type = ?[:0]const u8 },
     .{ .name = "http_max_concurrent", .type = ?u8 },
     .{ .name = "http_max_host_open", .type = ?u8 },
     .{ .name = "http_timeout", .type = ?u31 },
@@ -517,6 +524,17 @@ pub fn hnsDohUrl(self: *const Config) ?[:0]const u8 {
     return switch (self.mode) {
         inline .serve, .fetch, .mcp, .agent => |opts| opts.hns_doh_url,
         .version => null,
+        else => unreachable,
+    };
+}
+
+pub fn hnsDaneEnabled(self: *const Config) bool {
+    return switch (self.mode) {
+        inline .serve, .fetch, .mcp, .agent => |opts| {
+            const v = opts.hns_dane orelse return true;
+            return !std.mem.eql(u8, v, "off");
+        },
+        .version => false,
         else => unreachable,
     };
 }
