@@ -179,6 +179,13 @@ const CommonOptions = .{
     .{ .name = "obey_robots", .type = bool },
     .{ .name = "proxy_bearer_token", .type = ?[:0]const u8 },
     .{ .name = "http_proxy", .type = ?[:0]const u8 },
+    // Handshake name resolution via DNS-over-HTTPS (TRUSTED resolution: the
+    // resolver is not verified by this client). `off` disables HNS resolution
+    // (plain OS resolution). Unset selects the built-in public default; see
+    // src/network/hns/doh.zig. Interim by design: at Lane S kickoff, local
+    // SPV verification (hnsd) becomes the default resolution path and DoH
+    // drops to fallback.
+    .{ .name = "hns_doh_url", .type = ?[:0]const u8 },
     .{ .name = "http_max_concurrent", .type = ?u8 },
     .{ .name = "http_max_host_open", .type = ?u8 },
     .{ .name = "http_timeout", .type = ?u31 },
@@ -501,6 +508,14 @@ pub fn v8MaxHeapMb(self: *const Config) ?u32 {
 pub fn httpProxy(self: *const Config) ?[:0]const u8 {
     return switch (self.mode) {
         inline .serve, .fetch, .mcp, .agent => |opts| opts.http_proxy,
+        .version => null,
+        else => unreachable,
+    };
+}
+
+pub fn hnsDohUrl(self: *const Config) ?[:0]const u8 {
+    return switch (self.mode) {
+        inline .serve, .fetch, .mcp, .agent => |opts| opts.hns_doh_url,
         .version => null,
         else => unreachable,
     };

@@ -568,7 +568,7 @@ fn buildCurl(
 
         .CURL_DISABLE_AWS = true,
         .CURL_DISABLE_DICT = true,
-        .CURL_DISABLE_DOH = true,
+        .CURL_DISABLE_DOH = false,
         .CURL_DISABLE_FILE = true,
         .CURL_DISABLE_FTP = true,
         .CURL_DISABLE_GOPHER = true,

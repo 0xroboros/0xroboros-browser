@@ -25,6 +25,7 @@ const libcurl = @import("../sys/libcurl.zig");
 const crypto = @import("../sys/libcrypto.zig");
 
 const IpFilter = @import("IpFilter.zig");
+const hns_doh = @import("hns/doh.zig");
 
 const log = @import("lightpanda").log;
 
@@ -465,6 +466,15 @@ pub const Connection = struct {
             try libcurl.curl_easy_setopt(self._easy, .proxy, proxy.ptr);
         } else {
             try libcurl.curl_easy_setopt(self._easy, .proxy, null);
+        }
+
+        // Handshake name resolution (Lane T): route DNS lookups through a
+        // Handshake-capable DoH resolver when enabled. TRUSTED resolution —
+        // the resolver is not verified by this client. See network/hns/doh.zig.
+        if (hns_doh.effectiveUrl()) |doh_url| {
+            try libcurl.curl_easy_setopt(self._easy, .doh_url, doh_url.ptr);
+        } else {
+            try libcurl.curl_easy_setopt(self._easy, .doh_url, null);
         }
 
         // TLS.

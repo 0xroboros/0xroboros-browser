@@ -29,6 +29,7 @@ const libcurl = @import("../sys/libcurl.zig");
 const crypto = @import("../sys/libcrypto.zig");
 
 const http = @import("http.zig");
+const hns_doh = @import("hns/doh.zig");
 const IpFilter = @import("IpFilter.zig");
 const RobotStore = @import("Robots.zig").RobotStore;
 const WebBotAuth = @import("WebBotAuth.zig");
@@ -214,6 +215,11 @@ pub fn init(allocator: Allocator, app: *App, config: *const Config) !Network {
         f.deinit(allocator);
         allocator.destroy(f);
     };
+
+    // Handshake name resolution (Lane T): resolve the effective DoH URL once
+    // (probing the default public endpoint when nothing is configured) before
+    // the pool is built, so every connection picks it up in reset.
+    hns_doh.select(config, x509_store, ip_filter);
 
     const count: usize = config.httpMaxConcurrent();
     const connections = try allocator.alloc(http.Connection, count);

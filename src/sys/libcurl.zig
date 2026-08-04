@@ -229,6 +229,7 @@ pub const CurlOption = enum(c.CURLoption) {
     opensocket_data = c.CURLOPT_OPENSOCKETDATA,
     ssl_ctx_function = c.CURLOPT_SSL_CTX_FUNCTION,
     ssl_ctx_data = c.CURLOPT_SSL_CTX_DATA,
+    doh_url = c.CURLOPT_DOH_URL,
 };
 
 pub const CurlMOption = enum(c.CURLMoption) {
@@ -615,6 +616,7 @@ pub fn curl_easy_setopt(easy: *Curl, comptime option: CurlOption, value: anytype
 
         .url,
         .proxy,
+        .doh_url,
         .accept_encoding,
         .custom_request,
         .cookie,

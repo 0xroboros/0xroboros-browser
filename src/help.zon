@@ -338,6 +338,13 @@
     \\          contribute to computed styles (and therefore to visibility checks like
     \\          display, visibility, opacity, pointer-events).
     \\          Defaults to false, except in agent mode with an LLM, where it is on.
+    \\  --hns-doh-url <URL>
+    \\          DNS-over-HTTPS endpoint used to resolve Handshake (HNS) names,
+    \\          or "off" to disable HNS resolution (plain OS resolution).
+    \\          TRUSTED resolution: the resolver is not verified by this client.
+    \\          Defaults to a public community Handshake DoH resolver, with a
+    \\          second public endpoint as automatic fallback. Interim default:
+    \\          at Lane S, local SPV verification (hnsd) becomes the default.
     \\  --http-cache-dir <PATH>
     \\          Directory used as a filesystem cache for network resources. Omitting
     \\          this disables caching.
