@@ -338,6 +338,16 @@
     \\          contribute to computed styles (and therefore to visibility checks like
     \\          display, visibility, opacity, pointer-events).
     \\          Defaults to false, except in agent mode with an LLM, where it is on.
+    \\  --hns-dane <on|off>
+    \\          DANE/TLSA checking for HTTPS to names resolved through the
+    \\          HNS lane (Handshake names outside the ICANN root). With a
+    \\          matching TLSA record the connection authenticates without a
+    \\          CA; a non-matching set is a hard failure; no TLSA means
+    \\          standard CA validation. TRUSTED: TLSA records ride the same
+    \\          DoH channel as A records, so this is only as strong as the
+    \\          resolver answering; Lane S (hnsd SPV) upgrades the record
+    \\          channel to local verification. ICANN names are unaffected.
+    \\          Defaults to on when the HNS lane is active.
     \\  --hns-doh-url <URL>
     \\          DNS-over-HTTPS endpoint used to resolve Handshake (HNS) names,
     \\          or "off" to disable HNS resolution (plain OS resolution).

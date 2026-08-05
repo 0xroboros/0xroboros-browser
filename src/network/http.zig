@@ -26,6 +26,7 @@ const crypto = @import("../sys/libcrypto.zig");
 
 const IpFilter = @import("IpFilter.zig");
 const hns_doh = @import("hns/doh.zig");
+const hns_tlsa = @import("hns/tlsa.zig");
 
 const log = @import("lightpanda").log;
 
@@ -269,6 +270,13 @@ pub const Connection = struct {
     transport: Transport,
     node: std.DoublyLinkedList.Node = .{},
 
+    // Handshake DANE (Lane D). Armed per-URL in setURL for HNS names only;
+    // ICANN names never touch this. `_x509_store` mirrors the store passed
+    // to reset so the TLSA lookup can verify the DoH endpoint's TLS.
+    _dane: hns_tlsa.DaneState = .{},
+    _dane_enabled: bool = false,
+    _x509_store: ?*crypto.X509_STORE = null,
+
     // The curl_slist accumulated by addHeader/addRawHeader and handed to
     // curl by commitHeaders. Owned here because curl reads it during
     // perform; freed on reset/deinit or by the next clearHeaders.
@@ -299,8 +307,45 @@ pub const Connection = struct {
         libcurl.curl_easy_cleanup(self._easy);
     }
 
-    pub fn setURL(self: *const Connection, url: [:0]const u8) !void {
+    pub fn setURL(self: *Connection, url: [:0]const u8) !void {
         try libcurl.curl_easy_setopt(self._easy, .url, url.ptr);
+
+        // Re-stamp the ssl_ctx callback data with THIS address. The value
+        // reset() stored can be stale: Connection.init builds the struct in
+        // a local and returns it by value, so the pool slot's address is
+        // not the one reset captured. setURL always runs on the connection
+        // actually performing the transfer.
+        try libcurl.curl_easy_setopt(self._easy, .ssl_ctx_data, @as(*crypto.X509_STORE, @ptrCast(self)));
+
+        // Handshake DANE (Lane D): arm a TLSA set for TLS connections to
+        // names outside the ICANN root. Fail-closed semantics live in
+        // hns/tlsa.zig; a failed or empty lookup leaves the connection on
+        // plain Lane T behavior (CA validation), never a silent pass. Both
+        // HTTP and websocket transfers pass through here.
+        hns_tlsa.clear(&self._dane);
+        if (!self._dane_enabled) return;
+        // Restore the standard hostname check for whatever this handle
+        // carried before; an armed DANE-EE connection below turns it off
+        // for itself only (RFC 7671 §5.1: the TLSA lookup path is the name
+        // binding for DANE-EE; the leaf must still match a TLSA record or
+        // the verify callback hard-fails the handshake).
+        try libcurl.curl_easy_setopt(self._easy, .ssl_verify_host, true);
+
+        const store = self._x509_store orelse return;
+
+        const uri = std.Uri.parse(url) catch return;
+        const is_tls = std.ascii.eqlIgnoreCase(uri.scheme, "https") or
+            std.ascii.eqlIgnoreCase(uri.scheme, "wss");
+        if (!is_tls) return;
+        const host_c = uri.host orelse return;
+        const host = switch (host_c) {
+            .raw => |h| h,
+            .percent_encoded => |h| h,
+        };
+        if (!hns_tlsa.isHnsName(host)) return;
+        if (hns_tlsa.lookup(&self._dane, host, uri.port orelse 443, store) > 0) {
+            try libcurl.curl_easy_setopt(self._easy, .ssl_verify_host, false);
+        }
     }
 
     pub fn setTimeout(self: *const Connection, timeout_ms: u32) !void {
@@ -477,6 +522,13 @@ pub const Connection = struct {
             try libcurl.curl_easy_setopt(self._easy, .doh_url, null);
         }
 
+        // Handshake DANE (Lane D): armed per-URL in setURL, only for names
+        // outside the ICANN root, only while TLS verification is on.
+        hns_tlsa.clear(&self._dane);
+        self._x509_store = x509_store;
+        self._dane_enabled = config.tlsVerifyHost() and
+            config.hnsDaneEnabled() and hns_doh.effectiveUrl() != null;
+
         // TLS.
         if (config.tlsVerifyHost()) {
             // Provide certificate store to connection's SSL_CTX.
@@ -484,20 +536,30 @@ pub const Connection = struct {
                 fn wrap(
                     _: *libcurl.Curl,
                     raw_ssl_ctx: *anyopaque,
-                    raw_x509_store: *anyopaque,
+                    raw_conn: *anyopaque,
                 ) callconv(.c) libcurl.CurlCode {
                     const ssl_ctx: *crypto.SSL_CTX = @ptrCast(raw_ssl_ctx);
-                    const store: *crypto.X509_STORE = @ptrCast(raw_x509_store);
+                    const conn: *Connection = @ptrCast(@alignCast(raw_conn));
+                    const store = conn._x509_store orelse return libcurl.CURLE.ABORTED_BY_CALLBACK;
 
                     const result = crypto.SSL_CTX_set1_verify_cert_store(ssl_ctx, store);
                     if (result != 1) {
                         return libcurl.CURLE.ABORTED_BY_CALLBACK;
                     }
+                    // Handshake DANE (Lane D): when this connection's URL
+                    // armed a TLSA set, the leaf is checked against it
+                    // instead of requiring CA chain success. ICANN names
+                    // never arm, so their verification is untouched.
+                    if (conn._dane.armed) {
+                        hns_tlsa.SSL_CTX_set_cert_verify_callback(ssl_ctx, hns_tlsa.verifyCallback, &conn._dane);
+                    }
                     return libcurl.CURLE.OK;
                 }
             }).wrap);
-            // Pass our store to CURLOPT_SSL_CTX_FUNCTION.
-            try libcurl.curl_easy_setopt(self._easy, .ssl_ctx_data, x509_store);
+            // The setopt switch types ssl_ctx_data as *X509_STORE; the wrap
+            // above is the only consumer and unpacks the Connection, which
+            // carries both the store and the per-connection DANE state.
+            try libcurl.curl_easy_setopt(self._easy, .ssl_ctx_data, @as(*crypto.X509_STORE, @ptrCast(self)));
         } else {
             try libcurl.curl_easy_setopt(self._easy, .ssl_verify_host, false);
             try libcurl.curl_easy_setopt(self._easy, .ssl_verify_peer, false);

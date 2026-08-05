@@ -36,14 +36,23 @@ const crypto = @import("../../sys/libcrypto.zig");
 
 const log = lp.log;
 
-/// Public community Handshake DoH resolver (hns_doh_loadbalancer,
-/// multi-node). Verified live 2026-08-04. TRUSTED, not verified.
-pub const default_url: [:0]const u8 = "https://hnsdoh.com/dns-query";
+/// Ordered public Handshake DoH candidates. At startup the list is probed
+/// once, top to bottom; the first live endpoint wins for the session (no
+/// background health checks, no runtime re-ranking). Every entry was
+/// verified live on 2026-08-04; nothing unverified ships.
+/// [0] community load balancer (hns_doh_loadbalancer, multi-node)
+/// [1] Easy HNS, independently operated
+/// [2][3] direct regional nodes behind [0], reachable when the balancer
+///        itself is down. TRUSTED, not verified.
+pub const candidates = [_][:0]const u8{
+    "https://hnsdoh.com/dns-query",
+    "https://dns.easyhns.com/dns-query",
+    "https://eu.hnsdoh.com/dns-query",
+    "https://au.hnsdoh.com/dns-query",
+};
 
-/// Second, independently operated public Handshake DoH resolver (Easy HNS).
-/// Verified live 2026-08-04. Used automatically for the session when the
-/// startup probe of `default_url` fails.
-pub const fallback_url: [:0]const u8 = "https://dns.easyhns.com/dns-query";
+/// Kept for the startup log and tests: the shipped primary endpoint.
+pub const default_url: [:0]const u8 = candidates[0];
 
 /// RFC 8484 GET payload used by the startup probe: a base64url-encoded
 /// wireformat A query for a known Handshake name (nathan.woodburn).
@@ -86,22 +95,27 @@ pub fn select(config: *const Config, x509_store: *crypto.X509_STORE, ip_filter: 
         return;
     }
 
-    // No explicit configuration: probe the default once. The probe runs
-    // before `selected` is set so its own connection uses plain OS
-    // resolution for the resolver's hostname.
-    const ok = probe(config, x509_store, ip_filter);
-    selected = true;
-    if (ok) {
-        effective = default_url;
-        log.info(.http, "hns doh enabled", .{ .url = default_url, .trust = "trusted resolver, not verified" });
-    } else {
-        effective = fallback_url;
-        // Default endpoint unreachable: use the fallback for this session.
-        log.warn(.http, "hns doh fallback engaged", .{
-            .default = default_url,
-            .fallback = fallback_url,
-        });
+    // No explicit configuration: probe down the candidate list once; the
+    // first live endpoint wins for the session. The probes run before
+    // `selected` is set so their own connections use plain OS resolution
+    // for the resolvers' hostnames.
+    for (candidates, 0..) |url, i| {
+        if (probe(url, config, x509_store, ip_filter)) {
+            selected = true;
+            effective = url;
+            if (i > 0) {
+                log.warn(.http, "hns doh fallback engaged", .{ .endpoint = url, .rank = i });
+            }
+            log.info(.http, "hns doh enabled", .{ .url = url, .trust = "trusted resolver, not verified" });
+            return;
+        }
+        log.warn(.http, "hns doh probe miss", .{ .endpoint = url, .rank = i });
     }
+    // Every probe missed. Settle on the primary; resolution will fail
+    // loudly rather than silently downgrading to OS resolution.
+    selected = true;
+    effective = candidates[0];
+    log.warn(.http, "hns doh all probes missed", .{ .endpoint = candidates[0] });
 }
 
 /// The DoH URL transfer handles should apply, or null when HNS resolution
@@ -110,27 +124,30 @@ pub fn effectiveUrl() ?[:0]const u8 {
     return effective;
 }
 
-// One blocking RFC 8484 GET against `default_url`, reusing the standard
-// Connection setup so TLS verification runs against the same X509 store as
-// every other transfer. Success = HTTP 200.
-fn probe(config: *const Config, x509_store: *crypto.X509_STORE, ip_filter: ?*const IpFilter) bool {
+// One blocking RFC 8484 GET against `url`, reusing the standard Connection
+// setup so TLS verification runs against the same X509 store as every
+// other transfer. Success = HTTP 200.
+fn probe(url: [:0]const u8, config: *const Config, x509_store: *crypto.X509_STORE, ip_filter: ?*const IpFilter) bool {
     var conn = http.Connection.init(x509_store, config, ip_filter) catch |err| {
         log.warn(.http, "hns doh probe setup failed", .{ .err = err });
         return false;
     };
     defer conn.deinit();
 
-    conn.setURL(default_url ++ "?dns=" ++ probe_dns_param) catch return false;
+    var url_buf: [512:0]u8 = undefined;
+    const probe_url = std.fmt.bufPrintZ(&url_buf, "{s}?dns={s}", .{ url, probe_dns_param }) catch return false;
+
+    conn.setURL(probe_url) catch return false;
     libcurl.curl_easy_setopt(conn._easy, .timeout_ms, probe_timeout_ms) catch return false;
     libcurl.curl_easy_perform(conn._easy) catch |err| {
-        log.warn(.http, "hns doh probe failed", .{ .url = default_url, .err = err });
+        log.warn(.http, "hns doh probe failed", .{ .url = url, .err = err });
         return false;
     };
 
     var code: c_long = 0;
     libcurl.curl_easy_getinfo(conn._easy, .response_code, &code) catch return false;
     if (code != 200) {
-        log.warn(.http, "hns doh probe failed", .{ .url = default_url, .status = code });
+        log.warn(.http, "hns doh probe failed", .{ .url = url, .status = code });
         return false;
     }
     return true;
