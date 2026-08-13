@@ -56,3 +56,33 @@ DANE-EE connection the libcurl hostname check is disabled per RFC 7671 §5.1
 DANE-TA(2) does not land cleanly in the existing X509 store flow and is
 deliberately out of scope: such records are unusable here, and a set with
 nothing usable falls back to standard CA validation.
+
+## Lane S — VERIFIED resolution via a local hnsd SPV daemon
+
+The terminal lane: [hnsd](https://github.com/handshake-org/hnsd) (MIT) syncs
+Handshake block headers peer-to-peer, derives the name root committed on
+chain, and serves a validating resolver on localhost. When this lane is
+active, Handshake names resolve through it (AD required — answers validated
+against the chain, not any remote resolver), TLSA records for the Lane D
+DANE check arrive over the same verified channel, the trusted DoH lane is
+not selected (it remains the automatic startup fallback), and ICANN names
+use plain OS resolution, byte-identical to upstream.
+
+Fail-closed: an hnsd lookup that fails or comes back unvalidated is a
+resolution failure for that name — never a silent downgrade to a trusted
+channel mid-session. Lane selection happens once, at startup, and is logged.
+
+| File | Change |
+|---|---|
+| `src/network/hns/spv.zig` | New: lane selection (`auto` attaches to a running daemon on 127.0.0.1:15353 or spawns the hnsd sidecar; `off`; `host:port` attaches), UDP DNS client with AD enforcement, sidecar lifecycle (spawn with the real process environ, SIGKILL reap — the browser's signal mask is inherited by the child, so blockable signals never arrive), first-run sync grace window. |
+| `src/network/hns/tlsa.zig` | Wire helpers generalized (`buildQuery` takes a qtype, root qname handled, `parseTlsa`/`skipName` pub); `DaneState.verified` distinguishes the SPV channel from the DoH channel in logs. |
+| `src/network/http.zig` | `setURL`: SPV-resolved addresses pinned per handle via `CURLOPT_RESOLVE`; TLSA sourced from hnsd when SPV is active; DANE gate includes the SPV lane. |
+| `src/sys/libcurl.zig` | `CurlOption`: `resolve = CURLOPT_RESOLVE` (slist). |
+| `src/network/Network.zig` | Lane selection order: SPV first, DoH only when SPV is unavailable; sidecar shutdown on deinit. |
+| `src/Config.zig` | `--hns_spv <auto\|off\|host:port>` (default auto) and `--hnsd_path`; accessors. |
+| `src/help.zon` | `--hns-spv` and `--hnsd-path` help blocks. |
+
+Precedence: an explicit `--hns-doh-url` (URL or `off`) is a user choice of
+the DoH lane or of no HNS resolution, and disables SPV. With SPV active the
+program's trust vocabulary upgrades: resolution and DANE records are
+VERIFIED (chain-anchored), not merely trusted.

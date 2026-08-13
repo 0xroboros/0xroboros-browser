@@ -78,6 +78,9 @@ const Rec = struct {
 /// Per-connection DANE state, embedded in http.Connection. No allocation.
 pub const DaneState = struct {
     armed: bool = false,
+    /// True when the records arrived over the local SPV-validated channel
+    /// (Lane S); false means the trusted DoH channel (Lane T/D wording).
+    verified: bool = false,
     count: u8 = 0,
     host: [254]u8 = undefined,
     host_len: u8 = 0,
@@ -121,7 +124,7 @@ pub fn lookup(state: *DaneState, host: []const u8, port: u16, x509_store: *crypt
     const qname = std.fmt.bufPrint(&qname_buf, "_{d}._tcp.{s}", .{ port, host }) catch return 0;
 
     var query_buf: [384]u8 = undefined;
-    const query = buildQuery(&query_buf, qname) orelse return 0;
+    const query = buildQuery(&query_buf, qname, TYPE_TLSA) orelse return 0;
 
     var b64_buf: [512]u8 = undefined;
     const b64 = std.base64.url_safe_no_pad.Encoder.encode(&b64_buf, query);
@@ -135,7 +138,7 @@ pub fn lookup(state: *DaneState, host: []const u8, port: u16, x509_store: *crypt
         return 0;
     }
 
-    const n = parse(resp.buf[0..resp.len], state);
+    const n = parseTlsa(resp.buf[0..resp.len], state);
     if (n > 0) {
         state.host_len = @intCast(host.len);
         @memcpy(state.host[0..host.len], host);
@@ -148,6 +151,7 @@ pub fn lookup(state: *DaneState, host: []const u8, port: u16, x509_store: *crypt
 /// Disarm; the connection reverts to plain Lane T behavior.
 pub fn clear(state: *DaneState) void {
     state.armed = false;
+    state.verified = false;
     state.count = 0;
     state.host_len = 0;
 }
@@ -186,7 +190,8 @@ pub fn verifyCallback(store_ctx: *X509_STORE_CTX, arg: ?*anyopaque) callconv(.c)
 
     for (state.recs[0..state.count]) |*rec| {
         if (matches(leaf, rec)) {
-            log.info(.http, "hns dane match", .{ .host = state.hostname() });
+            const trust: []const u8 = if (state.verified) "verified spv channel" else "trusted doh channel";
+            log.info(.http, "hns dane match", .{ .host = state.hostname(), .trust = trust });
             return 1;
         }
     }
@@ -229,29 +234,33 @@ fn matches(leaf: *crypto.X509, rec: *const Rec) bool {
 
 // -- DNS wire helpers ------------------------------------------------------
 
-const TYPE_TLSA = 52;
+pub const TYPE_A = 1;
+pub const TYPE_AAAA = 28;
+pub const TYPE_TLSA = 52;
 
-fn buildQuery(buf: []u8, qname: []const u8) ?[]const u8 {
+pub fn buildQuery(buf: []u8, qname: []const u8, qtype: u16) ?[]const u8 {
     var w: usize = 0;
     // header: id 0, RD, one question
     const header = [_]u8{ 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 };
     @memcpy(buf[0..12], &header);
     w = 12;
-    var it = std.mem.splitScalar(u8, qname, '.');
-    while (it.next()) |label| {
-        if (label.len == 0 or label.len > 63) return null;
-        if (w + 1 + label.len + 5 > buf.len) return null;
-        buf[w] = @intCast(label.len);
-        @memcpy(buf[w + 1 ..][0..label.len], label);
-        w += 1 + label.len;
+    if (!std.mem.eql(u8, qname, ".")) { // "." is the root: no labels
+        var it = std.mem.splitScalar(u8, qname, '.');
+        while (it.next()) |label| {
+            if (label.len == 0 or label.len > 63) return null;
+            if (w + 1 + label.len + 5 > buf.len) return null;
+            buf[w] = @intCast(label.len);
+            @memcpy(buf[w + 1 ..][0..label.len], label);
+            w += 1 + label.len;
+        }
     }
     buf[w] = 0;
-    std.mem.writeInt(u16, buf[w + 1 ..][0..2], TYPE_TLSA, .big);
+    std.mem.writeInt(u16, buf[w + 1 ..][0..2], qtype, .big);
     std.mem.writeInt(u16, buf[w + 3 ..][0..2], 1, .big); // IN
     return buf[0 .. w + 5];
 }
 
-fn skipName(msg: []const u8, start: usize) ?usize {
+pub fn skipName(msg: []const u8, start: usize) ?usize {
     var o = start;
     while (o < msg.len) {
         const l = msg[o];
@@ -263,7 +272,7 @@ fn skipName(msg: []const u8, start: usize) ?usize {
 }
 
 /// Parse a DNS response, keeping usable DANE-EE(3) TLSA records.
-fn parse(msg: []const u8, state: *DaneState) u8 {
+pub fn parseTlsa(msg: []const u8, state: *DaneState) u8 {
     if (msg.len < 12) return 0;
     const flags = std.mem.readInt(u16, msg[2..4], .big);
     if (flags & 0xf != 0) return 0; // not NOERROR
