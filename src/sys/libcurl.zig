@@ -230,6 +230,7 @@ pub const CurlOption = enum(c.CURLoption) {
     ssl_ctx_function = c.CURLOPT_SSL_CTX_FUNCTION,
     ssl_ctx_data = c.CURLOPT_SSL_CTX_DATA,
     doh_url = c.CURLOPT_DOH_URL,
+    resolve = c.CURLOPT_RESOLVE,
 };
 
 pub const CurlMOption = enum(c.CURLMoption) {
@@ -625,7 +626,7 @@ pub fn curl_easy_setopt(easy: *Curl, comptime option: CurlOption, value: anytype
         .copy_post_fields,
         => @as(?[*]const u8, value),
 
-        .http_header => @as(?*CurlSList, value),
+        .http_header, .resolve => @as(?*CurlSList, value),
 
         .private,
         .header_data,

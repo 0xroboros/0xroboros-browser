@@ -26,6 +26,7 @@ const crypto = @import("../sys/libcrypto.zig");
 
 const IpFilter = @import("IpFilter.zig");
 const hns_doh = @import("hns/doh.zig");
+const hns_spv = @import("hns/spv.zig");
 const hns_tlsa = @import("hns/tlsa.zig");
 
 const log = @import("lightpanda").log;
@@ -277,6 +278,11 @@ pub const Connection = struct {
     _dane_enabled: bool = false,
     _x509_store: ?*crypto.X509_STORE = null,
 
+    // CURLOPT_RESOLVE entries injected for Lane S (SPV-resolved HNS names).
+    // Owned here because curl reads the list during perform; freed on the
+    // next setURL/reset.
+    _resolve_list: ?*libcurl.CurlSList = null,
+
     // The curl_slist accumulated by addHeader/addRawHeader and handed to
     // curl by commitHeaders. Owned here because curl reads it during
     // perform; freed on reset/deinit or by the next clearHeaders.
@@ -317,13 +323,14 @@ pub const Connection = struct {
         // actually performing the transfer.
         try libcurl.curl_easy_setopt(self._easy, .ssl_ctx_data, @as(*crypto.X509_STORE, @ptrCast(self)));
 
-        // Handshake DANE (Lane D): arm a TLSA set for TLS connections to
-        // names outside the ICANN root. Fail-closed semantics live in
-        // hns/tlsa.zig; a failed or empty lookup leaves the connection on
-        // plain Lane T behavior (CA validation), never a silent pass. Both
-        // HTTP and websocket transfers pass through here.
+        // Handshake lanes (S and D): pin SPV-resolved addresses and arm a
+        // TLSA set for names outside the ICANN root. Fail-closed semantics
+        // live in hns/spv.zig and hns/tlsa.zig; a failed or empty lookup
+        // leaves the connection on standard behavior (CA validation), never
+        // a silent pass. Both HTTP and websocket transfers pass through here.
         hns_tlsa.clear(&self._dane);
-        if (!self._dane_enabled) return;
+        self.clearResolveList();
+        if (!self._dane_enabled and !hns_spv.active()) return;
         // Restore the standard hostname check for whatever this handle
         // carried before; an armed DANE-EE connection below turns it off
         // for itself only (RFC 7671 §5.1: the TLSA lookup path is the name
@@ -331,20 +338,49 @@ pub const Connection = struct {
         // the verify callback hard-fails the handshake).
         try libcurl.curl_easy_setopt(self._easy, .ssl_verify_host, true);
 
-        const store = self._x509_store orelse return;
-
         const uri = std.Uri.parse(url) catch return;
         const is_tls = std.ascii.eqlIgnoreCase(uri.scheme, "https") or
             std.ascii.eqlIgnoreCase(uri.scheme, "wss");
-        if (!is_tls) return;
         const host_c = uri.host orelse return;
         const host = switch (host_c) {
             .raw => |h| h,
             .percent_encoded => |h| h,
         };
         if (!hns_tlsa.isHnsName(host)) return;
-        if (hns_tlsa.lookup(&self._dane, host, uri.port orelse 443, store) > 0) {
+        const port: u16 = uri.port orelse if (is_tls) 443 else 80;
+
+        // Lane S: resolve through the local SPV daemon and pin the answer
+        // on this handle. A failed or unvalidated SPV resolution stays
+        // failed; it is never downgraded to another channel.
+        if (hns_spv.active()) {
+            var resolved: hns_spv.Resolved = .{};
+            if (hns_spv.resolve(host, &resolved)) {
+                var entry_buf: [1024:0]u8 = undefined;
+                const entry = std.fmt.bufPrintZ(&entry_buf, "{s}:{d}:{s}", .{ host, port, resolved.list() }) catch return;
+                if (libcurl.curl_slist_append(null, entry)) |list| {
+                    self._resolve_list = list;
+                    try libcurl.curl_easy_setopt(self._easy, .resolve, list);
+                }
+            }
+        }
+
+        if (!is_tls or !self._dane_enabled) return;
+        const armed = if (hns_spv.active())
+            hns_spv.lookupTlsa(&self._dane, host, port)
+        else blk: {
+            const store = self._x509_store orelse break :blk 0;
+            break :blk hns_tlsa.lookup(&self._dane, host, port, store);
+        };
+        if (armed > 0) {
             try libcurl.curl_easy_setopt(self._easy, .ssl_verify_host, false);
+        }
+    }
+
+    fn clearResolveList(self: *Connection) void {
+        if (self._resolve_list) |list| {
+            libcurl.curl_easy_setopt(self._easy, .resolve, null) catch {};
+            libcurl.curl_slist_free_all(list);
+            self._resolve_list = null;
         }
     }
 
@@ -525,9 +561,10 @@ pub const Connection = struct {
         // Handshake DANE (Lane D): armed per-URL in setURL, only for names
         // outside the ICANN root, only while TLS verification is on.
         hns_tlsa.clear(&self._dane);
+        self.clearResolveList();
         self._x509_store = x509_store;
-        self._dane_enabled = config.tlsVerifyHost() and
-            config.hnsDaneEnabled() and hns_doh.effectiveUrl() != null;
+        self._dane_enabled = config.tlsVerifyHost() and config.hnsDaneEnabled() and
+            (hns_doh.effectiveUrl() != null or hns_spv.active());
 
         // TLS.
         if (config.tlsVerifyHost()) {

@@ -30,6 +30,7 @@ const crypto = @import("../sys/libcrypto.zig");
 
 const http = @import("http.zig");
 const hns_doh = @import("hns/doh.zig");
+const hns_spv = @import("hns/spv.zig");
 const IpFilter = @import("IpFilter.zig");
 const RobotStore = @import("Robots.zig").RobotStore;
 const WebBotAuth = @import("WebBotAuth.zig");
@@ -216,10 +217,15 @@ pub fn init(allocator: Allocator, app: *App, config: *const Config) !Network {
         allocator.destroy(f);
     };
 
-    // Handshake name resolution (Lane T): resolve the effective DoH URL once
-    // (probing the default public endpoint when nothing is configured) before
-    // the pool is built, so every connection picks it up in reset.
-    hns_doh.select(config, x509_store, ip_filter);
+    // Handshake resolution lane selection, once, before the pool is built.
+    // Lane S first: a local hnsd SPV daemon gives verified resolution. Only
+    // when it is unavailable does the trusted DoH lane (Lane T) engage as
+    // the automatic fallback. ICANN names use plain OS resolution when SPV
+    // is active.
+    hns_spv.select(allocator, config);
+    if (!hns_spv.active()) {
+        hns_doh.select(config, x509_store, ip_filter);
+    }
 
     const count: usize = config.httpMaxConcurrent();
     const connections = try allocator.alloc(http.Connection, count);
@@ -279,6 +285,9 @@ pub fn init(allocator: Allocator, app: *App, config: *const Config) !Network {
 }
 
 pub fn deinit(self: *Network) void {
+    // Lane S: stop the hnsd sidecar if this process spawned one.
+    hns_spv.shutdown();
+
     for (&self.wakeup_pipe) |*fd| {
         if (fd.* >= 0) {
             _ = std.c.close(fd.*);

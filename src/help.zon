@@ -348,6 +348,19 @@
     \\          resolver answering; Lane S (hnsd SPV) upgrades the record
     \\          channel to local verification. ICANN names are unaffected.
     \\          Defaults to on when the HNS lane is active.
+    \\  --hns-spv <auto|off|HOST:PORT>
+    \\          VERIFIED Handshake resolution via a local hnsd SPV daemon,
+    \\          which validates answers against the chain itself. "auto"
+    \\          (default) attaches to a running daemon on 127.0.0.1:15353 or
+    \\          spawns the sidecar when an hnsd binary is found; "off"
+    \\          disables the lane; HOST:PORT attaches to a specific daemon.
+    \\          When active, TLSA records for --hns-dane arrive over this
+    \\          verified channel and the trusted DoH lane is not used.
+    \\          When unavailable, resolution falls back to the trusted DoH
+    \\          lane at startup, with a clear log line.
+    \\  --hnsd-path <PATH>
+    \\          Path to the hnsd binary for the --hns-spv sidecar.
+    \\          Defaults to searching PATH and common install locations.
     \\  --hns-doh-url <URL>
     \\          DNS-over-HTTPS endpoint used to resolve Handshake (HNS) names,
     \\          or "off" to disable HNS resolution (plain OS resolution).

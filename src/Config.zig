@@ -193,6 +193,14 @@ const CommonOptions = .{
     // (hnsd SPV) upgrades the record channel to local verification. ICANN
     // names never enter this path.
     .{ .name = "hns_dane", .type = ?[:0]const u8 },
+    // Lane S: VERIFIED Handshake resolution via a local hnsd SPV daemon.
+    // "auto" (default) attaches to a running daemon or spawns the sidecar;
+    // "off" disables; "host:port" attaches to a specific daemon. An explicit
+    // --hns-doh-url overrides this lane entirely.
+    .{ .name = "hns_spv", .type = ?[:0]const u8 },
+    // Path to the hnsd binary for the Lane S sidecar; "auto" mode searches
+    // PATH and the usual install locations when this is unset.
+    .{ .name = "hnsd_path", .type = ?[:0]const u8 },
     .{ .name = "http_max_concurrent", .type = ?u8 },
     .{ .name = "http_max_host_open", .type = ?u8 },
     .{ .name = "http_timeout", .type = ?u31 },
@@ -523,6 +531,22 @@ pub fn httpProxy(self: *const Config) ?[:0]const u8 {
 pub fn hnsDohUrl(self: *const Config) ?[:0]const u8 {
     return switch (self.mode) {
         inline .serve, .fetch, .mcp, .agent => |opts| opts.hns_doh_url,
+        .version => null,
+        else => unreachable,
+    };
+}
+
+pub fn hnsSpv(self: *const Config) ?[:0]const u8 {
+    return switch (self.mode) {
+        inline .serve, .fetch, .mcp, .agent => |opts| opts.hns_spv,
+        .version => "off",
+        else => unreachable,
+    };
+}
+
+pub fn hnsdPath(self: *const Config) ?[:0]const u8 {
+    return switch (self.mode) {
+        inline .serve, .fetch, .mcp, .agent => |opts| opts.hnsd_path,
         .version => null,
         else => unreachable,
     };
