@@ -46,6 +46,17 @@ const log = lp.log;
 pub const default_addr = "127.0.0.1";
 pub const default_port: u16 = 15353;
 
+/// Port hnsd's root-nameserver Hesiod status channel binds to when this
+/// process spawns the sidecar (`-n`, distinct from the recursive resolver
+/// `-r` port above — hnsd runs both listeners). Chosen off the beaten path
+/// like `default_port`, rather than hnsd's own network default (5349 on
+/// mainnet, `vendor/hnsd/docs/hesiod.md`), to avoid colliding with an
+/// unrelated hnsd instance a user might already have running on the
+/// well-known port. Only meaningful for a sidecar THIS process spawned
+/// (`hesiod_addr` below) — an attached, externally-run daemon's Hesiod
+/// port is unknown to us and not guessed at.
+const hesiod_port: u16 = 15349;
+
 /// Where `auto` mode looks for an hnsd binary when nothing is running.
 /// A configured --hnsd-path always wins. `vendor/hnsd/hnsd` is checked
 /// first (repo-relative — the output of `zig build hnsd`, for `zig build
@@ -63,6 +74,12 @@ const spawn_ready_ms: u64 = 10_000;
 var active_state = false;
 var selected = false;
 var addr: sys_net.IpAddress = undefined;
+/// Set only when this process spawned the sidecar and pinned its Hesiod
+/// port with `-n` (see `spawn`); null for an attached daemon, or before
+/// spawn completes. `chainStatus`/`queryHesiod` degrade to their existing
+/// "unavailable" null result when this is unset — no regression, just no
+/// resolver detail, same as before this port was known at all.
+var hesiod_addr: ?sys_net.IpAddress = null;
 var child: ?std.process.Child = null;
 // Io used to spawn and later reap the sidecar. lp.io cannot spawn children
 // (failing allocator, empty environ); this one lives as long as the child.
@@ -163,6 +180,7 @@ pub fn shutdown() void {
         if (ch.id) |pid| _ = std.c.kill(pid, std.posix.SIG.KILL);
         ch.kill(io);
         child = null;
+        hesiod_addr = null;
         child_threaded.?.deinit();
         child_threaded = null;
     }
@@ -174,6 +192,12 @@ fn spawn(allocator: std.mem.Allocator, config: *const Config) bool {
     var port_buf: [32]u8 = undefined;
     const listen = std.fmt.bufPrint(&port_buf, "{s}:{d}", .{ default_addr, default_port }) catch return false;
 
+    // Pin the Hesiod status channel too (hnsd runs it as a second listener,
+    // independent of -r) so queryHesiod knows where to reach it. See
+    // hesiod_port's doc comment for why this isn't hnsd's own 5349 default.
+    var hesiod_listen_buf: [32]u8 = undefined;
+    const hesiod_listen = std.fmt.bufPrint(&hesiod_listen_buf, "{s}:{d}", .{ default_addr, hesiod_port }) catch return false;
+
     // Persistent header/checkpoint dir so later sessions start warm.
     var dir_buf: [512]u8 = undefined;
     const datadir: ?[]const u8 = if (std.c.getenv("HOME")) |h|
@@ -182,13 +206,17 @@ fn spawn(allocator: std.mem.Allocator, config: *const Config) bool {
         null;
     if (datadir) |d| std.Io.Dir.cwd().createDirPath(lp.io, d) catch {};
 
-    var argv_buf: [6][]const u8 = undefined;
+    var argv_buf: [8][]const u8 = undefined;
     var argc: usize = 0;
     argv_buf[argc] = path;
     argc += 1;
     argv_buf[argc] = "-r";
     argc += 1;
     argv_buf[argc] = listen;
+    argc += 1;
+    argv_buf[argc] = "-n";
+    argc += 1;
+    argv_buf[argc] = hesiod_listen;
     argc += 1;
     if (datadir) |d| {
         argv_buf[argc] = "-x";
@@ -227,6 +255,7 @@ fn spawn(allocator: std.mem.Allocator, config: *const Config) bool {
     while (lp.datetime.timestamp(.boot) < deadline) {
         if (probe()) {
             child = ch;
+            hesiod_addr = sys_net.IpAddress.parse(default_addr, hesiod_port) catch null;
             log.info(.http, "hns spv sidecar ready", .{ .path = path });
             return true;
         }
@@ -354,7 +383,34 @@ pub fn lookupTlsa(state: *tlsa.DaneState, host: []const u8, port: u16) u8 {
 /// tlsa.LookupOutcome doc comment: the engine's own fail-closed behavior is
 /// unchanged either way; only the reporting is richer (the agent verdict
 /// surface, verdict.zig, is the consumer).
+///
+/// Carries the same "just-spawned sidecar" grace window `resolve` already
+/// has (see its doc comment): a sidecar this process spawned may still be
+/// catching its chain up from the checkpoint when the very first HNS
+/// operation of the session is a standalone TLSA/verdict check rather than
+/// a page fetch (which goes through `resolve` first). Without this, that
+/// first check spuriously reports `.failed` for a daemon that would have
+/// answered correctly a second later — observed directly: a verdict check
+/// fired immediately after "hns spv sidecar ready" failed in under a
+/// millisecond, while the identical check 20s later succeeded. Retries only
+/// on `.failed` (transport failure or an unvalidated answer) — a validated
+/// `.empty` is a real, chain-confirmed absence and is never retried.
+/// Attached (not spawned) daemons are assumed synced, same as `resolve`.
 pub fn lookupTlsaDetailed(state: *tlsa.DaneState, host: []const u8, port: u16) tlsa.LookupOutcome {
+    const attempts: usize = if (child != null and !resolved_once) 30 else 1;
+    var attempt: usize = 0;
+    while (attempt < attempts) : (attempt += 1) {
+        if (attempt > 0) lp.io.sleep(.fromMilliseconds(500), .awake) catch {};
+        const outcome = lookupTlsaOnce(state, host, port);
+        if (outcome != .failed) {
+            resolved_once = true;
+            return outcome;
+        }
+    }
+    return .failed;
+}
+
+fn lookupTlsaOnce(state: *tlsa.DaneState, host: []const u8, port: u16) tlsa.LookupOutcome {
     tlsa.clear(state);
     if (host.len > 253) return .failed;
 
@@ -421,8 +477,9 @@ pub fn chainStatus() ?ChainStatus {
 }
 
 fn queryHesiod(qbuf: []u8, qname: []const u8, rbuf: []u8) ?[]const u8 {
+    const target = hesiod_addr orelse return null;
     const q = tlsa.buildQueryClass(qbuf, qname, tlsa.TYPE_TXT, tlsa.CLASS_HESIOD) orelse return null;
-    return sendRecv(q, rbuf);
+    return sendRecv(target, q, rbuf);
 }
 
 /// First TXT record's character-string content, or null on anything that
@@ -511,19 +568,22 @@ fn query(qbuf: []u8, qname: []const u8, qtype: u16, rbuf: []u8) ?[]const u8 {
     const q = tlsa.buildQuery(qbuf, qname, qtype) orelse return null;
     // AD bit in the query: byte 3, bit 0x20.
     qbuf[3] |= 0x20;
-    return sendRecv(q, rbuf);
+    return sendRecv(addr, q, rbuf);
 }
 
-// Shared UDP send/receive against the hnsd address, used by both the
-// Handshake-name `query` above (IN class, AD requested) and the Hesiod
-// status `queryHesiod` (HS class, chainStatus below) — same socket, timeout,
-// and truncation handling either way.
-fn sendRecv(q: []const u8, rbuf: []u8) ?[]const u8 {
-    const sock = sys_net.socket(sys_net.family(&addr), std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch return null;
+// Shared UDP send/receive against an hnsd listener, used by both the
+// Handshake-name `query` above (IN class, AD requested, the recursive
+// resolver at `addr`) and the Hesiod status `queryHesiod` (HS class,
+// chainStatus below, hnsd's SEPARATE root-nameserver listener at
+// `hesiod_addr` — confirmed distinct from the recursive resolver: hnsd
+// REFUSEs an HS-class query on the resolver port) — same socket, timeout,
+// and truncation handling either way, just a different target address.
+fn sendRecv(target: sys_net.IpAddress, q: []const u8, rbuf: []u8) ?[]const u8 {
+    const sock = sys_net.socket(sys_net.family(&target), std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch return null;
     defer _ = std.c.close(sock);
     setTimeouts(sock);
 
-    const sa = sys_net.sockaddrFromAddress(&addr);
+    const sa = sys_net.sockaddrFromAddress(&target);
     if (std.c.connect(sock, sa.ptr(), sa.len) != 0) return null;
     if (std.c.send(sock, q.ptr, q.len, 0) != q.len) return null;
 
