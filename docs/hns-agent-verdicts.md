@@ -9,9 +9,10 @@ a complete worked example, not the implementation (see `MODIFICATIONS.md`
 "Lane V" for that, and `src/network/hns/verdict.zig` for the source of
 truth).
 
-Internal `.0xtestrun` names are used below as the worked example — this is
-an internal repo doc; the same names are never used in anything
-public-facing.
+This is a public-repo doc: the worked example below uses placeholder names
+(`service.example` / `mismatch.example`) with illustrative byte values, not
+a real, resolvable Handshake position. For a live call against a real
+public Handshake name, see [quickstart.md](quickstart.md).
 
 ## Why a verdict, not a page
 
@@ -79,26 +80,29 @@ separately from the engine's own path:
   (`dane.outcome: "mismatch"`), with the evidence that blocked it — never
   silently downgraded, never hidden behind a generic error string.
 
-## Worked example: the phase-1 web-a / dane-b pair
+## Worked example: a matched pair and a negative control
 
-`web-a.endpoint.api.0xtestrun` and `dane-b.endpoint.api.0xtestrun` are the
-fork's own owned-and-operated proof pair (phase 1 of this program):
-`web-a` serves the certificate its published TLSA record actually names;
-`dane-b` deliberately serves a certificate that does *not* match its
-published TLSA record — a negative control. Both live on the same Fly
-listener via SNI, both were driven through the same Lane S SPV path in
-phase 2's re-run proof.
+`service.example` and `mismatch.example` below are placeholder names
+illustrating the object shape, not resolvable Handshake positions: imagine
+two names, each with a TLSA record published on Handshake — `service.example`
+serves the certificate its record actually names; `mismatch.example`
+deliberately serves a certificate that does *not* match its published TLSA
+record (a negative control, useful for testing that a client fails closed
+on a DANE mismatch rather than falling back to CA validation). For a live
+call against a real public Handshake name, see [quickstart.md](quickstart.md)
+— most public names will report `dane.outcome: "absent"` (no TLSA record
+published), which is a normal, successful lookup, not an error.
 
 Calling the standalone check against each (MCP: `verdict` tool; CDP:
 `LP.getHnsVerdict` — identical shape either way) with the spv lane active
 produces:
 
-**`web-a` — matched, verified:**
+**`service.example` — matched, verified:**
 
 ```json
 {
   "schema": "hns-verdict/1",
-  "name": "web-a.endpoint.api.0xtestrun",
+  "name": "service.example",
   "resolution_path": "spv",
   "resolver": { "sync_height": 342601, "chain_time": 1786672807 },
   "dane": {
@@ -125,12 +129,12 @@ produces:
 }
 ```
 
-**`dane-b` — mismatch, blocked (the negative control):**
+**`mismatch.example` — mismatch, blocked (the negative control):**
 
 ```json
 {
   "schema": "hns-verdict/1",
-  "name": "dane-b.endpoint.api.0xtestrun",
+  "name": "mismatch.example",
   "resolution_path": "spv",
   "resolver": { "sync_height": 342601, "chain_time": 1786672807 },
   "dane": { "outcome": "mismatch" },
@@ -149,32 +153,30 @@ produces:
 }
 ```
 
-`dane-b` serves K1's certificate but publishes K2's SPKI SHA-256 as the
-TLSA record (deliberate, phase 1's negative control): `evidence.records_seen`
-shows exactly what was published; `dane.matched` stays absent because
-nothing matched; `verified: true` because the *lookup itself* was
-chain-validated over the spv path — hnsd answered honestly that this is what
-the chain publishes, even though the served certificate doesn't honor it.
-`verified` describes the lookup's trust anchor, not the connection's
-outcome.
+`mismatch.example` serves one certificate but publishes a *different* key's
+SPKI SHA-256 as its TLSA record: `evidence.records_seen` shows exactly what
+was published; `dane.matched` stays absent because nothing matched;
+`verified: true` because the *lookup itself* was chain-validated over the
+spv path — hnsd answered honestly that this is what the chain publishes,
+even though the served certificate doesn't honor it. `verified` describes
+the lookup's trust anchor, not the connection's outcome.
 
-The illustrative fingerprints and heights above show the object shape; treat
-the live values in `0xos/endpoint-api/docs/2026-08-14_0xroboros_web-a-dane-proof-runbook_v02.md`
-and this fork's own phase 1/2 result records as the source of truth for the
-exact bytes on any given day (position keys and the chain tip both move).
+The fingerprints and heights above are illustrative values showing the
+object shape, not a live capture — the exact bytes on any real name shift
+with that name's own key and the current chain tip.
 
 ## Calling it
 
 **MCP** (`verdict` tool):
 
 ```json
-{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verdict","arguments":{"name":"web-a.endpoint.api.0xtestrun"}}}
+{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verdict","arguments":{"name":"nathan.woodburn"}}}
 ```
 
 **CDP** (`LP.getHnsVerdict`):
 
 ```json
-{"id":1,"method":"LP.getHnsVerdict","params":{"name":"web-a.endpoint.api.0xtestrun"}}
+{"id":1,"method":"LP.getHnsVerdict","params":{"name":"nathan.woodburn"}}
 ```
 
 Both accept an optional `port` (default `443`). Both return the identical
@@ -187,11 +189,10 @@ Both accept an optional `port` (default `443`). Both return the identical
   connection's `DaneState` unarmed identically. It reports `absent` with an
   `evidence.detail` note saying so. Use the active check (`verdict` tool /
   `LP.getHnsVerdict`) when that distinction matters.
-- `matched` reports the first usable TLSA record in the set. Real
-  `.0xtestrun` positions currently mint a single record per name, so this is
-  exact today; a genuinely multi-record RRset would need the engine's own
-  match index threaded back out to report *which* record matched — not
-  wired yet.
+- `matched` reports the first usable TLSA record in the set. Names that
+  publish a single TLSA record are exact today; a genuinely multi-record
+  RRset would need the engine's own match index threaded back out to report
+  *which* record matched — not wired yet.
 - `resolver.sync_height` / `chain_time` come from hnsd's own local Hesiod
   status channel (`height.tip.chain.hnsd.` / `time.tip.chain.hnsd.`,
   `vendor/hnsd/src/hesiod.c`) — a receipt pointing at the locally-synced

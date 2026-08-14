@@ -27,6 +27,12 @@ permissions:
 
 jobs:
   build-linux:
+    # Fork gate (browser-p5-distribution, MODIFICATIONS.md "Lane G"): this
+    # job publishes to upstream-owned AWS S3/CloudFront this fork has no
+    # credentials for. Left otherwise intact rather than deleted, in case
+    # this fork is ever resynced from upstream. See fork-release.yml for
+    # this fork's own release pipeline.
+    if: github.repository == 'lightpanda-io/browser'
     strategy:
       fail-fast: false
       matrix:
@@ -87,6 +93,7 @@ jobs:
           retention-days: 1
 
   build-macos:
+    if: github.repository == 'lightpanda-io/browser'
     strategy:
       fail-fast: false
       matrix:
@@ -140,11 +147,12 @@ jobs:
           makeLatest: true
 
   package-debian:
-    if: github.ref_type == 'tag'
+    if: github.ref_type == 'tag' && github.repository == 'lightpanda-io/browser'
     needs: build-linux
     uses: ./.github/workflows/package-debian.yml
 
   update-versions:
+    if: github.repository == 'lightpanda-io/browser'
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -180,6 +188,7 @@ jobs:
           aws cloudfront create-invalidation --distribution-id ${{ env.AWS_CLOUDFRONT_GET_ID }} --paths "/versions.json"
 
   invalidate-cloudfront:
+    if: github.repository == 'lightpanda-io/browser'
     needs: [build-linux, build-macos]
     runs-on: ubuntu-22.04
     timeout-minutes: 5
@@ -189,6 +198,7 @@ jobs:
           aws cloudfront create-invalidation --distribution-id ${{ env.AWS_CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
 
   build-docker-image:
+    if: github.repository == 'lightpanda-io/browser'
     needs: build-linux
     runs-on: ubuntu-latest
     steps:
@@ -210,6 +220,7 @@ jobs:
               --field tag="${{ env.RELEASE }}"
 
   update-homebrew-formula:
+    if: github.repository == 'lightpanda-io/browser'
     needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     steps:
