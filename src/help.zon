@@ -343,11 +343,33 @@
     \\          HNS lane (Handshake names outside the ICANN root). With a
     \\          matching TLSA record the connection authenticates without a
     \\          CA; a non-matching set is a hard failure; no TLSA means
-    \\          standard CA validation. TRUSTED: TLSA records ride the same
-    \\          DoH channel as A records, so this is only as strong as the
-    \\          resolver answering; Lane S (hnsd SPV) upgrades the record
-    \\          channel to local verification. ICANN names are unaffected.
-    \\          Defaults to on when the HNS lane is active.
+    \\          standard CA validation. TRUSTED under the doh lane: TLSA
+    \\          records ride the same DoH channel as A records, so this is
+    \\          only as strong as the resolver answering; under the spv lane
+    \\          (default, Lane S) the same records arrive VERIFIED, over the
+    \\          local hnsd channel. ICANN names are unaffected. Defaults to
+    \\          on when the HNS lane is active.
+    \\  --hns-doh-url <URL>
+    \\          DNS-over-HTTPS endpoint used by the doh lane, or "off" to
+    \\          disable HNS resolution entirely regardless of
+    \\          --hns-resolver. TRUSTED resolution: the resolver is not
+    \\          verified by this client. Defaults to a public community
+    \\          Handshake DoH resolver, with further public endpoints as
+    \\          automatic fallback. An explicit value here also skips the
+    \\          spv lane (this flag is a deliberate choice of doh, or of no
+    \\          HNS resolution).
+    \\  --hns-resolver <spv|doh|off>
+    \\          Selects the Handshake (HNS) name resolution lane. "spv"
+    \\          (default when the HNS lane is active): local hnsd SPV
+    \\          verification (Lane S) first; on startup failure (no peers,
+    \\          sync failure) resolution falls back to the doh lane for the
+    \\          rest of the session, with a loud log line naming the
+    \\          downgrade to TRUSTED. "doh": the trusted DoH lane only (Lane
+    \\          T), spv never attempted. "off": plain OS resolution,
+    \\          unchanged — no HNS lane at all. See --hns-spv and
+    \\          --hns-doh-url for the finer-grained knobs each lane still
+    \\          takes (attach to a specific spv daemon or host:port, pin a
+    \\          specific DoH endpoint).
     \\  --hns-spv <auto|off|HOST:PORT>
     \\          VERIFIED Handshake resolution via a local hnsd SPV daemon,
     \\          which validates answers against the chain itself. "auto"
@@ -355,19 +377,13 @@
     \\          spawns the sidecar when an hnsd binary is found; "off"
     \\          disables the lane; HOST:PORT attaches to a specific daemon.
     \\          When active, TLSA records for --hns-dane arrive over this
-    \\          verified channel and the trusted DoH lane is not used.
-    \\          When unavailable, resolution falls back to the trusted DoH
-    \\          lane at startup, with a clear log line.
+    \\          verified channel and the trusted DoH lane is not used. Read
+    \\          only when --hns-resolver selects spv (the default).
     \\  --hnsd-path <PATH>
-    \\          Path to the hnsd binary for the --hns-spv sidecar.
-    \\          Defaults to searching PATH and common install locations.
-    \\  --hns-doh-url <URL>
-    \\          DNS-over-HTTPS endpoint used to resolve Handshake (HNS) names,
-    \\          or "off" to disable HNS resolution (plain OS resolution).
-    \\          TRUSTED resolution: the resolver is not verified by this client.
-    \\          Defaults to a public community Handshake DoH resolver, with a
-    \\          second public endpoint as automatic fallback. Interim default:
-    \\          at Lane S, local SPV verification (hnsd) becomes the default.
+    \\          Path to the hnsd binary for the --hns-spv sidecar. Defaults
+    \\          to checking vendor/hnsd/hnsd (repo-relative, the output of
+    \\          `zig build hnsd`), then searching PATH and common install
+    \\          locations.
     \\  --http-cache-dir <PATH>
     \\          Directory used as a filesystem cache for network resources. Omitting
     \\          this disables caching.

@@ -47,8 +47,11 @@ pub const default_addr = "127.0.0.1";
 pub const default_port: u16 = 15353;
 
 /// Where `auto` mode looks for an hnsd binary when nothing is running.
-/// A configured --hnsd-path always wins. "hnsd" resolves via PATH.
+/// A configured --hnsd-path always wins. `vendor/hnsd/hnsd` is checked
+/// first (repo-relative — the output of `zig build hnsd`, for `zig build
+/// run` invoked from the repo root); "hnsd" resolves via PATH after that.
 const binary_candidates = [_][]const u8{
+    "vendor/hnsd/hnsd",
     "hnsd",
     "/opt/homebrew/bin/hnsd",
     "/usr/local/bin/hnsd",
@@ -72,12 +75,13 @@ pub fn active() bool {
 /// One-shot lane selection, called from Network.init before the connection
 /// pool is built (single-threaded; read-only afterwards).
 ///
-/// Precedence: an explicit --hns-doh-url (URL or `off`) is a user choice of
-/// the DoH lane or of no HNS resolution, and disables SPV. Otherwise
-/// --hns-spv: `off` disables; `host:port` attaches to a running daemon;
-/// `auto` (default) attaches to a daemon on the default port, or spawns the
-/// sidecar when an hnsd binary can be found, or leaves the lane inactive so
-/// the trusted DoH lane is selected instead.
+/// Precedence: --hns-resolver=off or =doh disables this lane outright (the
+/// master selector, item 3). Otherwise an explicit --hns-doh-url (URL or
+/// `off`) is a user choice of the DoH lane or of no HNS resolution, and
+/// disables SPV. Otherwise --hns-spv: `off` disables; `host:port` attaches
+/// to a running daemon; `auto` (default) attaches to a daemon on the
+/// default port, or spawns the sidecar when an hnsd binary can be found, or
+/// leaves the lane inactive so the trusted DoH lane is selected instead.
 pub fn select(allocator: std.mem.Allocator, config: *const Config) void {
     if (selected) return;
     selected = true;
@@ -85,6 +89,18 @@ pub fn select(allocator: std.mem.Allocator, config: *const Config) void {
 
     // The probe/spawn below touch the network and the filesystem.
     if (builtin.is_test) return;
+
+    switch (config.hnsResolver()) {
+        .off => {
+            log.info(.http, "hns spv skipped", .{ .reason = "--hns-resolver=off" });
+            return;
+        },
+        .doh => {
+            log.info(.http, "hns spv skipped", .{ .reason = "--hns-resolver=doh" });
+            return;
+        },
+        .spv => {},
+    }
 
     if (config.hnsDohUrl() != null) {
         log.info(.http, "hns spv skipped", .{ .reason = "explicit --hns-doh-url" });
@@ -106,7 +122,7 @@ pub fn select(allocator: std.mem.Allocator, config: *const Config) void {
         if (probe()) {
             activate("attached");
         } else {
-            log.warn(.http, "hns spv unreachable", .{ .value = mode });
+            log.warn(.http, "hns spv startup failed, downgrading to TRUSTED doh for this session", .{ .reason = "unreachable", .value = mode });
         }
         return;
     }
@@ -123,7 +139,7 @@ pub fn select(allocator: std.mem.Allocator, config: *const Config) void {
         activate("spawned");
         return;
     }
-    log.info(.http, "hns spv unavailable", .{ .fallback = "doh (trusted)" });
+    log.warn(.http, "hns spv startup failed, downgrading to TRUSTED doh for this session", .{ .reason = "no daemon reachable, sidecar spawn failed" });
 }
 
 fn activate(how: []const u8) void {

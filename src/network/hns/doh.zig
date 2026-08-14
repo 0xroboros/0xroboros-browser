@@ -83,6 +83,17 @@ pub fn select(config: *const Config, x509_store: *crypto.X509_STORE, ip_filter: 
         return;
     }
 
+    // --hns-resolver=off is the master switch: no HNS resolution at all,
+    // regardless of --hns-doh-url. (=doh falls through to the normal logic
+    // below — spv.select already skipped SPV for that case, so whatever
+    // this function selects becomes the active lane.)
+    if (config.hnsResolver() == .off) {
+        selected = true;
+        effective = null;
+        log.info(.http, "hns doh disabled", .{ .reason = "--hns-resolver=off" });
+        return;
+    }
+
     if (config.hnsDohUrl()) |url| {
         selected = true;
         if (std.mem.eql(u8, url, "off")) {

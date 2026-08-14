@@ -74,15 +74,74 @@ channel mid-session. Lane selection happens once, at startup, and is logged.
 
 | File | Change |
 |---|---|
-| `src/network/hns/spv.zig` | New: lane selection (`auto` attaches to a running daemon on 127.0.0.1:15353 or spawns the hnsd sidecar; `off`; `host:port` attaches), UDP DNS client with AD enforcement, sidecar lifecycle (spawn with the real process environ, SIGKILL reap — the browser's signal mask is inherited by the child, so blockable signals never arrive), first-run sync grace window. |
+| `vendor/hnsd/` | New: vendored hnsd source, pinned commit (MIT; see `vendor/hnsd/VENDORED_COMMIT` and "chain-compat" below). Not part of the default build. |
+| `build.zig` | New `hnsd` step (`zig build hnsd`): autotools bootstrap (`autogen.sh` → `configure` → `make`) against `vendor/hnsd`, installs to `zig-out/bin/hnsd` and `vendor/hnsd/hnsd`. Off the default build (needs autoconf/automake/libtool/pkg-config + libunbound; see "chain-compat" below for the environments this has been proven against). |
+| `src/network/hns/spv.zig` | New: lane selection (`auto` attaches to a running daemon on 127.0.0.1:15353 or spawns the hnsd sidecar; `off`; `host:port` attaches), UDP DNS client with AD enforcement, sidecar lifecycle (spawn with the real process environ, SIGKILL reap — the browser's signal mask is inherited by the child, so blockable signals never arrive), first-run sync grace window. `auto` binary search checks `vendor/hnsd/hnsd` first (repo-relative), then PATH, then the usual install locations. Startup failure (no reachable daemon, sidecar spawn/ready timeout) logs a `.warn`-level line naming the downgrade to TRUSTED doh, not `.info`. |
 | `src/network/hns/tlsa.zig` | Wire helpers generalized (`buildQuery` takes a qtype, root qname handled, `parseTlsa`/`skipName` pub); `DaneState.verified` distinguishes the SPV channel from the DoH channel in logs. |
+| `src/network/hns/doh.zig` | `select`: `--hns-resolver=off` is checked first and disables this lane outright, regardless of `--hns-doh-url`. |
 | `src/network/http.zig` | `setURL`: SPV-resolved addresses pinned per handle via `CURLOPT_RESOLVE`; TLSA sourced from hnsd when SPV is active; DANE gate includes the SPV lane. |
 | `src/sys/libcurl.zig` | `CurlOption`: `resolve = CURLOPT_RESOLVE` (slist). |
 | `src/network/Network.zig` | Lane selection order: SPV first, DoH only when SPV is unavailable; sidecar shutdown on deinit. |
-| `src/Config.zig` | `--hns_spv <auto\|off\|host:port>` (default auto) and `--hnsd_path`; accessors. |
-| `src/help.zon` | `--hns-spv` and `--hnsd-path` help blocks. |
+| `src/Config.zig` | `--hns-resolver <spv\|doh\|off>` (new; default spv when the HNS lane is active — the master selector, see below), `--hns_spv <auto\|off\|host:port>` (default auto), `--hnsd_path`; accessors. |
+| `src/help.zon` | `--hns-resolver`, `--hns-spv`, and `--hnsd-path` help blocks (re-sorted alphabetically into the existing `--hns-*` run, which had drifted out of order). |
 
-Precedence: an explicit `--hns-doh-url` (URL or `off`) is a user choice of
-the DoH lane or of no HNS resolution, and disables SPV. With SPV active the
+Precedence: **`--hns-resolver` is the master switch** (item 3 of the Lane S
+program). `spv` (default): SPV first; on startup failure (no peers, sync
+failure, no binary found) resolution falls back to the doh lane for the
+rest of the session, with a `.warn`-level log line naming the downgrade to
+TRUSTED. `doh`: the doh lane only, SPV never attempted. `off`: plain OS
+resolution, unchanged — confirmed by fetching an HNS name under `off`,
+which fails with `CouldntResolveHost` exactly as it would upstream.
+`--hns-spv` and `--hns-doh-url` remain available underneath whichever lane
+`--hns-resolver` selects, for finer control (attach to a specific spv
+daemon or host:port; pin a specific DoH endpoint); an explicit
+`--hns-doh-url` (URL or `off`) is still also, on its own, a user choice of
+the doh lane or of no HNS resolution, and disables SPV. With SPV active the
 program's trust vocabulary upgrades: resolution and DANE records are
 VERIFIED (chain-anchored), not merely trusted.
+
+### Lane S — chain-compat (vendored hnsd)
+
+hnsd is vendored at `vendor/hnsd/` rather than merely required at runtime:
+pinned commit, exact provenance, and chain-compat notes are in
+`vendor/hnsd/VENDORED_COMMIT`. Summary: the last tagged release is v2.0.0;
+the pinned commit is 13 untagged commits ahead of it on `master` (the
+binary still self-reports `2.99.0`), including an ICANN-domain resolution
+fix (`8dccc02`) this fork wants. No local patches — pristine
+`git archive` of the pinned commit; `LICENSE` (MIT) carried alongside it.
+
+"Stale, needs the build-against-current-chain treatment" (item 1) means:
+prove this exact pinned commit still syncs and validates against *current*
+mainnet consensus, not the chain as it stood near v2.0.0. Measured, this
+session, against live Handshake mainnet (chain tip height 342601 as of
+2026-08-14, this fork's own build via `zig build hnsd` / `make hnsd`, arm64
+macOS, home network — not a lab benchmark):
+
+- **Cold sync** (empty `-x` prefix directory, no `-t` hard-coded-checkpoint
+  flag — the exact invocation shape `src/network/hns/spv.zig`'s sidecar
+  spawn uses in production, genesis-to-tip via P2P, no shortcuts): the
+  daemon's own `chain is fully synced` log line landed before the 166-second
+  mark; a live AD-validated query (`nathan.woodburn` A, answered from the
+  chain-derived root, RRSIG present) succeeded by the 215-second mark, at
+  which point it was reaping headers/blocks for the current tip (342601) in
+  real time. Call it **under 4 minutes** cold, on this connection, to a
+  fully operational validating resolver — not the many-hour worst case a
+  1.5M+-header genesis walk might suggest; Handshake's actual chain height
+  at this point in 2026 keeps a from-scratch P2P sync inside single-digit
+  minutes.
+- **Warm resume** (a day-old on-disk checkpoint from a prior run, ordinary
+  `--hns-spv=auto` production path): `chain is fully synced` inside 48
+  seconds, cold process start to warm.
+- **Steady-state memory**: RSS settled at **8.1–8.4 MB** (`ps -o rss=`,
+  sampled repeatedly post-sync) while serving live validated queries. This
+  is consistent with, and slightly under, hnsd's own published figure —
+  "about 12mb of memory when operating with a full DNS cache" (`vendor/hnsd/README.md`,
+  [handshake-org/hnsd](https://github.com/handshake-org/hnsd)) — which is
+  cited here rather than re-derived; the 8.1–8.4 MB reading is this
+  session's own measurement on the pinned commit, not a substitute for it.
+
+Verified functional, not just numerically: both figures above were taken
+against a daemon actually serving AD-validated live-mainnet answers
+end-to-end (see "Verification" in the phase result), including the
+re-run Lane-S proof pair (`web-a`/`dane-b` under `.0xtestrun`, a real owned
+Handshake TLD, not a lab fixture).
