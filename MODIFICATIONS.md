@@ -179,3 +179,56 @@ It reports `absent` with an `evidence.detail` note saying so. The active
 `compute` path (MCP tool / `LP.getHnsVerdict`) does not have this limitation
 — it runs the TLSA lookup itself and can tell `lookup_failed` from `absent`
 directly.
+
+## Lane G — distribution (phase 5)
+
+Makes the fork runnable by a stranger, without us present: an OCI image and
+platform binaries built from *this repository's own source* (Lanes T/D/S/V
+above), published to GHCR and a tagged GitHub Release on this fork. Nothing
+in this lane touches resolution, DANE, or verdict behavior — it is build and
+packaging only.
+
+| File | Change |
+|---|---|
+| `Dockerfile` | Rewritten. Upstream's Dockerfile does `git clone --depth 1 https://github.com/lightpanda-io/browser.git` inside the build — on this fork that would silently discard every Lane T/D/S/V change and ship a vanilla upstream binary under our tag. Replaced with `COPY . .` from the build context (this checkout). Added: `zig build hnsd` (the vendored, MIT-licensed hnsd sidecar, built from `vendor/hnsd/` via its autotools bootstrap — `autoconf`/`automake`/`libtool`/`libunbound-dev` added to the builder stage; `libunbound8` added to the runtime stage as hnsd's dynamic-link runtime dependency); the built `hnsd` binary and this repo's own `LICENSE`/`MODIFICATIONS.md` copied into the final image; OCI standard labels (`org.opencontainers.image.source`, `.licenses`, `.version`) pointing at this fork and its AGPL-3.0-only license, for source-availability discoverability (`docker inspect`, GHCR's own "View repository" linkback); default `CMD` changed from `serve` to `mcp --host 0.0.0.0 --port 9223 --hns-resolver spv --hnsd-path /bin/hnsd` — the documented default surface for a stranger driving this image as an agent backend, HNS resolution on by default via the verified SPV lane. `TARGETPLATFORM`-conditioned steps (zig/V8 arch selection) kept as upstream had them — still correct for `docker buildx build --platform linux/amd64,linux/arm64`. |
+| `.dockerignore` | New. Excludes host build state (`.git`, `.zig-cache`, `.lp-cache`, `zig-out`, `vendor/hnsd/hnsd` and its build litter) from the build context — the container does its own from-scratch build of all of it; a host-arch `hnsd` binary in the context would be dead weight, not a shortcut. |
+| `.github/workflows/fork-release.yml` | New. This fork's own release pipeline: upstream's `release.yml` publishes to upstream's private AWS S3/CloudFront buckets and triggers two more upstream-owned repos (`lightpanda-io/browser-docker`, `lightpanda-io/homebrew-browser`) via a GitHub App token this fork has no credentials for — none of that is reachable from here. `fork-release.yml` instead: builds `linux/amd64`, `linux/arm64`, `macos/arm64` binaries with SHA-256 checksums and a multi-arch OCI image (`linux/amd64` + `linux/arm64`) pushed to `ghcr.io/0x13omb3r/0xroboros-browser`, all using the workflow-scoped `GITHUB_TOKEN` (`contents: write`, `packages: write`) — no external secrets. Triggers on `push: tags: 'v*'` and `workflow_dispatch` (manual trigger with a `tag` input), so a release does not depend on this fork's auto-trigger-on-push behavior (see open items). |
+| `.github/workflows/release.yml` | Every job gated `if: github.repository == 'lightpanda-io/browser'` — left otherwise intact (in case this fork is ever synced from upstream and the gate needs removing there instead of re-diffing this file). Ungated, it would fire on any `v*` tag push (its trigger is bare `'*'`) and fail loudly on every job for missing AWS/GitHub-App secrets this fork does not have. |
+
+### Open items
+
+- **This fork's Actions never auto-triggered on `push`/`pull_request` across
+  five prior merged PRs** (`gh api .../actions/runs` returned `total_count:
+  0` before this phase) despite `actions/permissions` reporting
+  `enabled: true` and every workflow file in `active` state — the
+  well-documented GitHub fork gate (Actions disabled on a freshly forked
+  repo until a human or a workflow run first "wakes" them). **Resolved,
+  confirmed in this same phase**: a manual `gh workflow run zig-test.yml`
+  queued successfully, and this phase's own PR (#7) then auto-triggered
+  `zig-test`, `e2e-test`, `plumber`, and `CLA Assistant` on push/PR events
+  for the first time ever on this repo — the gate is cleared going forward.
+  `fork-release.yml` still keeps `workflow_dispatch` as a trigger alongside
+  `push: tags`, as a deliberate belt-and-suspenders given this history, not
+  because it's still the only option.
+- This phase also confirmed `plumber` (the repo's supply-chain scanner,
+  previously assumed as structurally inert on this fork as `CLA Assistant`
+  is) genuinely runs and gates on real findings: it caught `fork-release.
+  yml`'s four new `docker/*` actions as both unpinned and off the
+  `trustedGithubActions` allowlist (8 high-severity findings, score D) —
+  fixed for real (SHA-pinned, allowlisted) rather than waived. `CLA
+  Assistant` remains genuinely inapplicable to this fork's own PRs (no CLA
+  bot configured for this repo) — see the phase result's trademark report
+  for the related `CONTRIBUTING.md`/`CLA.md` routing-confusion finding.
+- The multi-arch OCI image build is single-job, QEMU-emulated for the
+  non-native arch inside the `docker/build-push-action` step (`docker/
+  setup-qemu-action`), matching the upstream Dockerfile's own
+  `TARGETPLATFORM`-conditioned design intent. This is simpler than
+  upstream's own split-by-native-runner approach (their Docker image build
+  lives in a separate repo entirely) but slower for the emulated leg; worth
+  revisiting with native multi-runner + manifest-list assembly if build
+  time becomes a problem.
+- No CI currently exercises `zig build hnsd` end-to-end inside a container
+  before a real release tag is pushed — `fork-release.yml`'s Docker job is
+  the first place that path runs on Linux under CI; validated locally on
+  this host (arm64, native, no emulation) before this PR opened — see the
+  phase result for the exact build log.

@@ -60,6 +60,10 @@ github:
         - contributor-assistant/github-action
         - mlugg/setup-zig
         - docker/login-action
+        - docker/setup-qemu-action
+        - docker/setup-buildx-action
+        - docker/metadata-action
+        - docker/build-push-action
         - Swatinem/rust-cache
         - dtolnay/rust-toolchain
         - getplumber/plumber
