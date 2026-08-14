@@ -135,6 +135,7 @@ COPY --from=build /browser/zig-out/bin/lightpanda /bin/lightpanda
 COPY --from=build /browser/vendor/hnsd/hnsd /bin/hnsd
 COPY --from=build /browser/LICENSE /LICENSE
 COPY --from=build /browser/MODIFICATIONS.md /MODIFICATIONS.md
+COPY --from=build /browser/vendor/hnsd/LICENSE /THIRD_PARTY_LICENSES/hnsd-LICENSE-MIT
 COPY --from=tini /usr/bin/tini /usr/bin/tini
 
 EXPOSE 9223/tcp
