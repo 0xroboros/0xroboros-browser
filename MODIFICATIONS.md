@@ -145,3 +145,37 @@ against a daemon actually serving AD-validated live-mainnet answers
 end-to-end (see "Verification" in the phase result), including the
 re-run Lane-S proof pair (`web-a`/`dane-b` under `.0xtestrun`, a real owned
 Handshake TLD, not a lab fixture).
+
+## Lane V — agent verdict surface
+
+Resolution and DANE outcomes as a first-class, evidence-carrying result —
+`hns-verdict/1` — instead of raw page bytes: the machine-economy unlock,
+agents operating on Handshake with a portable trust verdict over both the
+MCP and CDP surfaces. This surface only *observes and reports* what Lane
+S/D/T already decided; it never re-implements the DANE match/mismatch
+decision (fail-closed inheritance) and never carries key material.
+
+Vocabulary law extended: `verified` on a verdict is true only for the spv
+resolution path, and only when hnsd itself returned an AD-validated answer
+(an armed match/mismatch, or a validated-empty absent). A doh-path or
+os-path verdict (ICANN names, or a Handshake-shaped name with neither lane
+active) is never `verified`.
+
+| File | Change |
+|---|---|
+| `src/network/hns/verdict.zig` | New: the `hns-verdict/1` schema (`Verdict`, `ResolutionPath`, `DaneOutcome`, `ResolverDetail`, `MatchedRecord`, `Evidence`), `compute` (the "resolve + TLSA check only" primitive — drives the exact same `http.Connection` arm/verify path a real fetch uses, via `CURLOPT_CONNECT_ONLY=2`, stopped after the TLS handshake and before any HTTP request), `fromObservedConnection` (CDP passive-observation path, from an already-completed connection's `DaneState`), `fromBlockedConnection` (a DANE mismatch that blocked a connection), `resolutionPathFor` (pure lane classifier). Schema pin, one test per dane outcome, and the spv-vs-doh `verified` distinction all run as pure unit tests against the builder, no live hnsd/DoH endpoint required. |
+| `src/network/hns/tlsa.zig` | `buildQuery` generalized to `buildQueryClass` (adds a DNS class parameter; `buildQuery` is now a thin IN-class wrapper — existing callers unaffected); new `LookupOutcome` union (`failed`/`empty`/`armed(n)`) and `lookupDetailed`, distinguishing a failed lookup from a confirmed-absent TLSA set — `lookup` (the engine's own u8-returning API, used by `http.zig`) is now a thin wrapper over it, behavior unchanged. |
+| `src/network/hns/spv.zig` | `query`'s socket send/receive extracted into a shared `sendRecv`; new `queryHesiod` (class HS) and `chainStatus` reading hnsd's own local status channel (`vendor/hnsd/src/hesiod.c`: `height.tip.chain.hnsd.` / `time.tip.chain.hnsd.` TXT records) — the spv-path "resolver detail" and evidence.proof reference in a verdict; new `lookupTlsaDetailed` (same `LookupOutcome` split as tlsa.zig); `lookupTlsa` is now a thin wrapper over it, behavior unchanged. |
+| `src/network/HttpClient.zig` | `Transfer` gains `_dane: hns_tlsa.DaneState = .{}`, a snapshot captured in `materializeResponse` (success path) and in the failure branch of `processOneMessage` (before the conn is released and reused, which would otherwise reset it) — read by the CDP attachment below. Pure observation; no change to connection/transfer behavior. |
+| `src/cdp/domains/network.zig` | `ResponseWriter` gains a `network: *const Network` field (threaded from `httpResponseHeaderDone`, which already has `bc` in scope) and an additive `hnsVerdict` field on `Network.responseReceived`'s `response` object, present only for names outside the ICANN root (`hnsHostFromUrl`/`isHnsName`) — absent entirely, byte-identical to upstream, for every other response. `httpRequestFail` gains the same additive `hnsVerdict` field on `Network.loadingFailed`, populated only when the failure was `error.PeerFailedVerification` on an HNS name — fail-closed inheritance: a mismatch that blocked a connection is reported as blocked, with the evidence. |
+| `src/cdp/domains/lp.zig` | New `LP.getHnsVerdict` command (`{name, port?}` -> a full verdict object) — the CDP-surface counterpart to the MCP `verdict` tool, same `verdict.compute` primitive underneath. |
+| `src/mcp/tools.zig` | New `verdict` tool (`{name, port?}` -> a full verdict object as text content) alongside `save`/`session_*`, following the same `ExtraTool` dispatch convention; `tools/list` advertises it. |
+| `docs/hns-agent-verdicts.md` | New: agent-facing page showing a complete verdict for a real fetch, using the phase 1 web-a/dane-b pair as the worked example. |
+
+Scope boundary, stated rather than hidden: `fromObservedConnection` (the CDP
+passive path) cannot distinguish a failed TLSA lookup from a confirmed-empty
+one — both leave a completed connection's `DaneState` unarmed the same way.
+It reports `absent` with an `evidence.detail` note saying so. The active
+`compute` path (MCP tool / `LP.getHnsVerdict`) does not have this limitation
+— it runs the TLSA lookup itself and can tell `lookup_failed` from `absent`
+directly.

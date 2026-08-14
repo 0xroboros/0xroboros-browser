@@ -108,44 +108,81 @@ pub fn isHnsName(host: []const u8) bool {
     return !icann.isIcannTld(label);
 }
 
+/// Outcome of a TLSA lookup attempt, distinguishing a transport/protocol
+/// failure (nothing learned) from a clean answer that simply carries no
+/// usable DANE-EE records (a confirmed absence). `lookup`/`lookupTlsa`
+/// (below, and in spv.zig) collapse both into 0 for the engine's own
+/// fail-closed connection logic, which treats them identically (fall back
+/// to standard CA validation) — this richer outcome exists for observers
+/// (the agent verdict surface, verdict.zig) that need to report *why* no
+/// binding was found.
+pub const LookupOutcome = union(enum) {
+    /// Transport, protocol, or non-NOERROR failure: the check did not
+    /// complete. Nothing was confirmed either way.
+    failed,
+    /// A clean NOERROR answer with zero usable DANE-EE records: DANE is
+    /// confirmed absent for this name.
+    empty,
+    /// A clean answer with `n` usable records; `state` is populated and
+    /// armed.
+    armed: u8,
+};
+
 /// Fetch TLSA for `_<port>._tcp.<host>` through the effective Lane T DoH
 /// endpoint and fill `state`. Returns the number of usable DANE-EE records.
 /// Any failure (no endpoint, network, HTTP, SERVFAIL, parse) returns 0:
 /// the caller treats that exactly like an absent TLSA set (standard CA
 /// validation), never as a pass.
 pub fn lookup(state: *DaneState, host: []const u8, port: u16, x509_store: *crypto.X509_STORE) u8 {
+    return switch (lookupDetailed(state, host, port, x509_store)) {
+        .failed, .empty => 0,
+        .armed => |n| n,
+    };
+}
+
+/// Same lookup as `lookup`, reporting `LookupOutcome` instead of collapsing
+/// failure and confirmed-absence into the same 0. Engine behavior
+/// (fail-closed to standard CA validation on anything but `.armed`) is
+/// identical either way; only the reporting is richer.
+pub fn lookupDetailed(state: *DaneState, host: []const u8, port: u16, x509_store: *crypto.X509_STORE) LookupOutcome {
     state.armed = false;
     state.count = 0;
 
-    const doh_url = doh.effectiveUrl() orelse return 0;
-    if (host.len > 253) return 0;
+    const doh_url = doh.effectiveUrl() orelse return .failed;
+    if (host.len > 253) return .failed;
 
     var qname_buf: [280]u8 = undefined;
-    const qname = std.fmt.bufPrint(&qname_buf, "_{d}._tcp.{s}", .{ port, host }) catch return 0;
+    const qname = std.fmt.bufPrint(&qname_buf, "_{d}._tcp.{s}", .{ port, host }) catch return .failed;
 
     var query_buf: [384]u8 = undefined;
-    const query = buildQuery(&query_buf, qname, TYPE_TLSA) orelse return 0;
+    const query = buildQuery(&query_buf, qname, TYPE_TLSA) orelse return .failed;
 
     var b64_buf: [512]u8 = undefined;
     const b64 = std.base64.url_safe_no_pad.Encoder.encode(&b64_buf, query);
 
     var url_buf: [1024:0]u8 = undefined;
-    const url = std.fmt.bufPrintZ(&url_buf, "{s}?dns={s}", .{ doh_url, b64 }) catch return 0;
+    const url = std.fmt.bufPrintZ(&url_buf, "{s}?dns={s}", .{ doh_url, b64 }) catch return .failed;
 
     var resp: Response = .{};
     if (!fetch(url, x509_store, &resp)) {
         log.warn(.http, "hns dane lookup failed", .{ .host = host });
-        return 0;
+        return .failed;
     }
 
-    const n = parseTlsa(resp.buf[0..resp.len], state);
+    const msg = resp.buf[0..resp.len];
+    if (msg.len < 12) return .failed;
+    const flags = std.mem.readInt(u16, msg[2..4], .big);
+    if (flags & 0xf != 0) return .failed; // not NOERROR: could not complete the check
+
+    const n = parseTlsa(msg, state);
     if (n > 0) {
         state.host_len = @intCast(host.len);
         @memcpy(state.host[0..host.len], host);
         state.armed = true;
         log.info(.http, "hns dane armed", .{ .host = host, .records = n, .trust = "trusted doh channel" });
+        return .{ .armed = n };
     }
-    return n;
+    return .empty;
 }
 
 /// Disarm; the connection reverts to plain Lane T behavior.
@@ -236,9 +273,21 @@ fn matches(leaf: *crypto.X509, rec: *const Rec) bool {
 
 pub const TYPE_A = 1;
 pub const TYPE_AAAA = 28;
+pub const TYPE_TXT = 16;
 pub const TYPE_TLSA = 52;
 
+pub const CLASS_IN: u16 = 1;
+/// Hesiod, RFC 1183 class 4 — how hnsd exposes its own SPV status (chain
+/// height, tip time, peer pool) as TXT records under `*.hnsd.` (see
+/// vendor/hnsd/src/hesiod.c). Not a Handshake- or ICANN-namespace lookup;
+/// purely a local status channel to the sidecar itself.
+pub const CLASS_HESIOD: u16 = 4;
+
 pub fn buildQuery(buf: []u8, qname: []const u8, qtype: u16) ?[]const u8 {
+    return buildQueryClass(buf, qname, qtype, CLASS_IN);
+}
+
+pub fn buildQueryClass(buf: []u8, qname: []const u8, qtype: u16, qclass: u16) ?[]const u8 {
     var w: usize = 0;
     // header: id 0, RD, one question
     const header = [_]u8{ 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0 };
@@ -256,7 +305,7 @@ pub fn buildQuery(buf: []u8, qname: []const u8, qtype: u16) ?[]const u8 {
     }
     buf[w] = 0;
     std.mem.writeInt(u16, buf[w + 1 ..][0..2], qtype, .big);
-    std.mem.writeInt(u16, buf[w + 3 ..][0..2], 1, .big); // IN
+    std.mem.writeInt(u16, buf[w + 3 ..][0..2], qclass, .big);
     return buf[0 .. w + 5];
 }
 

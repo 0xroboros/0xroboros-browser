@@ -8,6 +8,7 @@ const BrowserTool = browser_tools.Tool;
 const protocol = @import("protocol.zig");
 const Server = @import("Server.zig");
 const McpTool = protocol.Tool;
+const hns_verdict = @import("../network/hns/verdict.zig");
 
 /// Convert browser tool_defs to MCP wire-protocol tools (comptime).
 /// Tool identity comes from the `BrowserTool` tag — `tool_defs` only
@@ -55,7 +56,23 @@ const session_id_schema = browser_tools.minify(
     \\}
 );
 
+const verdict_schema = browser_tools.minify(
+    \\{
+    \\  "type": "object",
+    \\  "properties": {
+    \\    "name": { "type": "string", "description": "The name to check, e.g. web-a.endpoint.api.0xtestrun. ICANN names are valid input but always report dane.outcome \"off\" — DANE only applies outside the ICANN root." },
+    \\    "port": { "type": "integer", "description": "TCP port to check the DANE/TLSA binding against. Defaults to 443." }
+    \\  },
+    \\  "required": ["name"]
+    \\}
+);
+
 const extra_tools = [_]McpTool{
+    .{
+        .name = "verdict",
+        .description = "Resolve a name and check its DANE/TLSA binding WITHOUT fetching a page: resolution + TLSA check only. Returns a signed hns-verdict/1 object — resolution_path (spv/doh/os), the dane outcome (matched/mismatch/absent/lookup_failed/off) with evidence, and a verified flag that is true only when the result is chain-anchored (the spv path). Use this to check a name's trust posture before acting on it, or to audit a binding without paying for a full page load.",
+        .inputSchema = verdict_schema,
+    },
     .{
         .name = "save",
         .description = "Save the session as a reusable Lightpanda agent script. You hold the conversation, so synthesize the `script` yourself — `const page = new Page(); await page.goto(url);` then call the builtins you used as tools (extract, click, fill, …) as methods on `page` with the same object arguments. Keep `$LP_*` placeholders; never inline a resolved secret.\n\n" ++ browser_tools.save_synthesis_prompt ++ "\n\n" ++ browser_tools.save_script_rules,
@@ -82,6 +99,7 @@ const all_tools = browser_tool_list ++ extra_tools;
 
 /// Tools that bypass the browser-tool dispatch and have their own handlers.
 const ExtraTool = enum {
+    verdict,
     save,
     session_new,
     session_list,
@@ -104,6 +122,7 @@ pub fn handleCall(server: *Server, arena: std.mem.Allocator, req: protocol.Reque
 
     if (std.meta.stringToEnum(ExtraTool, call_params.name)) |tool| {
         return switch (tool) {
+            .verdict => handleVerdict(server, arena, id, call_params.arguments),
             .save => handleSave(server, arena, id, call_params.arguments),
             .session_new => handleSessionNew(server, arena, id, call_params.arguments),
             .session_list => handleSessionList(server, arena, id),
@@ -147,6 +166,21 @@ fn dispatchBrowserTool(
 
 fn surfacesErrorInBand(tool: BrowserTool) bool {
     return tool == .evaluate or tool == .extract;
+}
+
+fn handleVerdict(server: *Server, arena: std.mem.Allocator, id: std.json.Value, arguments: ?std.json.Value) !void {
+    const Args = struct { name: []const u8, port: ?u16 = null };
+    const args = browser_tools.parseArgs(Args, arena, arguments) catch {
+        return server.sendError(id, .InvalidParams, "expected { name: string, port?: number }");
+    };
+
+    const network = &server.active_session.session.browser.app.network;
+    const verdict = hns_verdict.compute(arena, network, args.name, args.port orelse 443) catch |err|
+        return sendErrorContent(server, id, @errorName(err));
+
+    const json = std.json.Stringify.valueAlloc(arena, verdict, .{ .emit_null_optional_fields = false }) catch
+        return sendErrorContent(server, id, "out of memory");
+    try sendToolResultText(server, id, json, false);
 }
 
 fn handleSave(server: *Server, arena: std.mem.Allocator, id: std.json.Value, arguments: ?std.json.Value) !void {
@@ -1482,6 +1516,71 @@ test "MCP - sessions: new, list, attach isolation, close" {
     );
     try testing.expect(std.mem.indexOf(u8, out.written(), "closed session a") != null);
     try testing.expect(!server.sessions.contains("a"));
+}
+
+test "MCP - tools/list advertises verdict" {
+    var out: std.Io.Writer.Allocating = .init(testing.arena_allocator);
+    var server = try Server.init(testing.allocator, testing.test_app, &out.writer);
+    defer server.deinit();
+
+    try router.handleMessage(server, testing.arena_allocator,
+        \\{"jsonrpc":"2.0","id":1,"method":"tools/list"}
+    );
+    try testing.expect(std.mem.indexOf(u8, out.written(), "\"name\":\"verdict\"") != null);
+}
+
+// Integration test for the standalone `verdict` MCP tool — the "resolve +
+// TLSA check only" primitive (phase 3, item 2). Under `zig build test`
+// neither Handshake lane ever activates (hns_doh.select/hns_spv.select both
+// no-op under builtin.is_test — see doh.zig/spv.zig), so this is
+// deterministic without live hnsd/DoH infrastructure: every name, HNS-shaped
+// or not, resolves through resolution_path "os" with dane.outcome "off" and
+// verified=false. This exercises the full MCP wire path (tools/call ->
+// router -> handleVerdict -> verdict.compute -> JSON-in-text-content) end
+// to end; the per-outcome and spv-vs-doh distinctions this can't reach in a
+// test binary are covered directly against verdict.zig's pure builder in
+// that file's own tests.
+test "MCP - verdict: HNS-shaped name, both lanes inactive under test" {
+    var out: std.Io.Writer.Allocating = .init(testing.arena_allocator);
+    var server = try Server.init(testing.allocator, testing.test_app, &out.writer);
+    defer server.deinit();
+
+    try router.handleMessage(server, testing.arena_allocator,
+        \\{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verdict","arguments":{"name":"web-a.endpoint.api.0xtestrun"}}}
+    );
+    const written = out.written();
+    try testing.expect(std.mem.indexOf(u8, written, "\\\"schema\\\":\\\"hns-verdict/1\\\"") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "\\\"resolution_path\\\":\\\"os\\\"") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "\\\"outcome\\\":\\\"off\\\"") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "\\\"verified\\\":false") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "\"isError\":true") == null);
+}
+
+test "MCP - verdict: ICANN name always reports dane off" {
+    var out: std.Io.Writer.Allocating = .init(testing.arena_allocator);
+    var server = try Server.init(testing.allocator, testing.test_app, &out.writer);
+    defer server.deinit();
+
+    try router.handleMessage(server, testing.arena_allocator,
+        \\{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verdict","arguments":{"name":"example.com"}}}
+    );
+    const written = out.written();
+    try testing.expect(std.mem.indexOf(u8, written, "\\\"outcome\\\":\\\"off\\\"") != null);
+    try testing.expect(std.mem.indexOf(u8, written, "\"isError\":true") == null);
+}
+
+test "MCP - verdict: requires a name argument" {
+    var out: std.Io.Writer.Allocating = .init(testing.arena_allocator);
+    var server = try Server.init(testing.allocator, testing.test_app, &out.writer);
+    defer server.deinit();
+
+    try router.handleMessage(server, testing.arena_allocator,
+        \\{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"verdict","arguments":{}}}
+    );
+    try testing.expectJson(.{
+        .id = 1,
+        .@"error" = .{ .code = -32602 },
+    }, out.written());
 }
 
 fn testLoadPage(url: [:0]const u8, writer: *std.Io.Writer) !*Server {

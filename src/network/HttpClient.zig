@@ -33,6 +33,7 @@ const http = @import("http.zig");
 const Network = @import("Network.zig");
 const Cache = @import("cache/Cache.zig");
 const RobotsGate = @import("RobotsGate.zig");
+const hns_tlsa = @import("hns/tlsa.zig");
 const UrlBlocklist = @import("UrlBlocklist.zig");
 pub const BlockPattern = UrlBlocklist.Pattern;
 
@@ -1515,6 +1516,11 @@ fn processOneMessage(self: *Client, msg: http.Handles.MultiMessage, transfer: *T
     };
 
     if (effective_err != null and !is_conn_close_recv) {
+        // Snapshot the DANE state before the conn is released and reused —
+        // a mismatch (error.PeerFailedVerification) is exactly the case
+        // the CDP loadingFailed attachment (network.zig:httpRequestFail)
+        // needs this for; see the field's own doc comment.
+        transfer._dane = msg.conn._dane;
         self.removeConn(msg.conn);
         transfer._conn = null;
         transfer.failAsync(transfer.res.callback_error orelse effective_err.?);
@@ -1950,6 +1956,17 @@ pub const Transfer = struct {
 
     _conn_id: i64 = 0,
     _conn_reused: bool = false,
+
+    // Snapshot of the connection's Handshake DANE state (src/network/hns/tlsa.zig),
+    // captured (materializeResponse, and the failure branch in
+    // processOneMessage) while `_conn` is still live — the conn is released
+    // and reused for the next resource right after, resetting its own
+    // `_dane`. Read by the CDP agent-verdict attachment
+    // (src/cdp/domains/network.zig: ResponseWriter / httpRequestFail) via
+    // verdict.fromObservedConnection / verdict.fromBlockedConnection.
+    // Zero-value default (unarmed) for every transfer that never touched an
+    // HNS name — a no-op copy, not extra I/O.
+    _dane: hns_tlsa.DaneState = .{},
 
     // Set by the first deinit. A retired transfer is unlinked from
     // everything and sits on client.graveyard
@@ -2415,6 +2432,7 @@ pub const Transfer = struct {
         const conn_id = conn.getConnId() catch -1;
         self._conn_id = if (conn_id < 0) 0 else conn_id + 1;
         self._conn_reused = conn.isConnReused() catch false;
+        self._dane = conn._dane;
 
         const arena = self.arena;
 
