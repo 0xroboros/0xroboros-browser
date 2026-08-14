@@ -13,6 +13,10 @@ permissions:
 
 jobs:
   CLAAssistant:
+    # Upstream's CLA covers contributions to lightpanda-io/browser; PRs
+    # internal to this fork are not upstream contributions. Same gate
+    # pattern as release.yml (phase 5).
+    if: github.repository == 'lightpanda-io/browser'
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
