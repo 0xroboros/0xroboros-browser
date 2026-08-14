@@ -232,3 +232,50 @@ packaging only.
   the first place that path runs on Linux under CI; validated locally on
   this host (arm64, native, no emulation) before this PR opened — see the
   phase result for the exact build log.
+
+## Lane S — MVP integration fixes (phase 4)
+
+Two defects surfaced by driving the `verdict` MCP tool against live
+`.0xtestrun` positions (phase 4 of the browser program, MVP integration
+proof) and fixed here, both additive/surgical to `src/network/hns/spv.zig`:
+
+1. **TLSA lookups had no sidecar-warmup grace window.** `resolve` (A/AAAA)
+   already retries up to 30×500ms for a sidecar this process just spawned,
+   with the comment "give the first resolutions a grace window instead of
+   failing page one of the session." `lookupTlsaDetailed` had no equivalent
+   — reproduced directly: a `verdict` check fired immediately after the "hns
+   spv sidecar ready" log line failed in under a millisecond
+   (`lookup_failed`, "TLSA lookup did not complete cleanly"), while the
+   identical check ~20s later, same session, succeeded (`hns dane armed`).
+   `lookupTlsaDetailed` now takes the same grace window, keyed off the same
+   `resolved_once` state `resolve` already tracks (retries only on
+   `.failed`; a validated `.empty` is a real chain-confirmed absence and is
+   never retried).
+2. **`resolver.sync_height`/`chain_time` were never populated.** `chainStatus`
+   queried hnsd's Hesiod status channel (`height.tip.chain.hnsd.` /
+   `time.tip.chain.hnsd.`, class HS) on the same port as the recursive
+   resolver (`addr`, `-r 127.0.0.1:15353`). Confirmed directly with `dig`
+   against a manually-launched sidecar: `dig @127.0.0.1 -p 15353 HS TXT
+   height.tip.chain.hnsd` returns `REFUSED` — hnsd runs the Hesiod status API
+   on its **root-nameserver** listener, a second, separate port from the
+   recursive resolver (`vendor/hnsd/docs/hesiod.md`; confirmed live:
+   `dig @127.0.0.1 -p 5349 HS TXT height.tip.chain.hnsd` answered
+   `"342607"`, the real chain tip, once pointed at the right port). The
+   sidecar spawn now also pins `-n 127.0.0.1:15349` (off the beaten path,
+   like the existing `-r` port choice, rather than hnsd's own mainnet
+   default 5349, to avoid colliding with an unrelated hnsd a user might
+   already have running) and `queryHesiod` targets that address instead of
+   the shared recursive-resolver `addr`. Scoped to the sidecar THIS process
+   spawns — an attached, externally-run daemon's Hesiod port is unknown to
+   us and not guessed at; `chainStatus`/`queryHesiod` degrade to their
+   existing null result in that case, same as before this port was known.
+
+| File | Change |
+|---|---|
+| `src/network/hns/spv.zig` | `lookupTlsaDetailed` split into a retrying wrapper (30×500ms grace window when `child != null and !resolved_once`, mirroring `resolve`) plus `lookupTlsaOnce` (the prior body, unchanged). New `hesiod_port` constant (15349) and `hesiod_addr: ?sys_net.IpAddress` module var, set when `spawn` succeeds (only for a sidecar this process spawned); `spawn`'s argv gains `-n 127.0.0.1:15349`; `shutdown` clears `hesiod_addr` alongside `child`. `sendRecv` takes an explicit target address (`addr` for `query`, `hesiod_addr` for `queryHesiod`) instead of always using the shared recursive-resolver `addr`; `queryHesiod` returns `null` immediately when `hesiod_addr` is unset (attached-daemon case, unchanged behavior). |
+
+Both are additive/surgical: no change to ICANN resolution, DANE match/mismatch
+semantics, or any existing passing behavior — confirmed by the full test
+suite staying green (see the phase 4 result record) and by an ICANN
+regression grep on the diff (`ssl_verify|insecure|verify_host|CURLOPT_SSL`:
+zero hits).
