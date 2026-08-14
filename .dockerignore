@@ -1,0 +1,21 @@
+# Keeps the Docker build context to source only. The Dockerfile's `build`
+# stage does its own `zig build hnsd` / v8 snapshot / release build inside
+# the container; none of this host-local, already-built state should be
+# copied in (wrong arch/OS for cross-platform builds, and it only slows the
+# COPY layer down).
+.git
+.zig-cache
+.lp-cache
+.lp-history
+.lp-history.js
+.lp-agent.zon
+zig-pkg
+zig-out
+lightpanda.id
+src/html5ever/target
+src/snapshot.bin
+vendor/hnsd/hnsd
+vendor/hnsd/*.o
+vendor/hnsd/*.lo
+vendor/hnsd/.libs
+vendor/hnsd/.deps

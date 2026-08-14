@@ -60,7 +60,7 @@ const verdict_schema = browser_tools.minify(
     \\{
     \\  "type": "object",
     \\  "properties": {
-    \\    "name": { "type": "string", "description": "The name to check, e.g. web-a.endpoint.api.0xtestrun. ICANN names are valid input but always report dane.outcome \"off\" — DANE only applies outside the ICANN root." },
+    \\    "name": { "type": "string", "description": "The name to check, e.g. nathan.woodburn. ICANN names are valid input but always report dane.outcome \"off\" — DANE only applies outside the ICANN root." },
     \\    "port": { "type": "integer", "description": "TCP port to check the DANE/TLSA binding against. Defaults to 443." }
     \\  },
     \\  "required": ["name"]
