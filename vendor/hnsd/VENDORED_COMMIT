@@ -1,0 +1,22 @@
+source:  https://github.com/handshake-org/hnsd
+commit:  3c2cd7a2b744558ac159efced3898e7d5adbb4a6
+branch:  master (HEAD at vendor time)
+vendored: 2026-08-14
+license: MIT (see LICENSE in this directory)
+method:  `git archive <commit> | tar -x` — pristine tree, no local patches.
+
+Chain-compat note: the last tagged release is v2.0.0 (tag commit
+a5c7c287e848f46d3e97f16b698e2027c8dc96c3). The pinned commit above is 13
+commits ahead of that tag on master and has never been re-tagged, so the
+binary still self-reports "2.99.0" rather than a new version number. Commits
+of note between the v2.0.0 tag and the pinned commit:
+  - 8dccc02 fix: Update tld.h file to fix issues with resolving ICANN domains
+  - 627f3be added name_root handling
+  - 2b52d29 changed integration test
+  - cb1ab83 ci: Add brew prefix and fix npm errors (lower hsd/bdb build fix)
+  Full list: `git log a5c7c287e848f46d3e97f16b698e2027c8dc96c3..3c2cd7a` in
+  the upstream repo.
+This fork tracks master rather than the v2.0.0 tag specifically because of
+these fixes; see MODIFICATIONS.md "Lane S — chain-compat" for the sync/memory
+measurements taken against this exact pinned commit on live Handshake
+mainnet.

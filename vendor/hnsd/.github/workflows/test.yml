@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: ${{matrix.os}}
+    strategy:
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: MacOS Install Deps
+        if: matrix.os == 'macos-latest'
+        run: |
+          brew install automake autoconf libtool unbound
+          echo "CONFIGURE_EXTRA_ARGS=--with-unbound=$(brew --prefix unbound)" >> $GITHUB_ENV
+
+      - name: Ubuntu Install Deps
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y libunbound-dev
+
+      - name: Build
+        run: ./autogen.sh && ./configure --with-network=regtest $CONFIGURE_EXTRA_ARGS && make
+
+      - name: Unit Tests
+        run: ./test_hnsd
+
+      - name: Setup Integration
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          check-latest: true
+
+      - name: Integration Tests
+        working-directory: ./integration
+        run: |
+          npm install
+          npm run test

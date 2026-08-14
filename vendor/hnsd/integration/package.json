@@ -1,0 +1,14 @@
+{
+  "name": "hnsd_integration_test",
+  "meta": "!! version must match hnsd version in configure.ac !!",
+  "version": "2.99.0",
+  "scripts": {
+    "test": "bmocha --reporter spec test/*.js",
+    "test-file": "bmocha --reporter spec"
+  },
+  "dependencies": {
+    "bmocha": "^2.1.5",
+    "bsert": "0.0.10",
+    "hsd": "^8.0.0"
+  }
+}

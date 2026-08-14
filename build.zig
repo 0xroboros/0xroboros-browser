@@ -218,6 +218,59 @@ pub fn build(b: *Build) !void {
         const test_step = b.step("test", "Run unit tests");
         test_step.dependOn(&run_tests.step);
     }
+
+    // Lane S: vendored hnsd (vendor/hnsd, MIT, pinned commit — see
+    // vendor/hnsd/VENDORED_COMMIT). Off the default build, same reasoning as
+    // `extras`: it needs a native autotools toolchain (autoconf, automake,
+    // libtool, pkg-config) plus libunbound, which not every contributor has
+    // installed, and CI has not been proven against it yet (see
+    // MODIFICATIONS.md open items). Build explicitly with `zig build hnsd`;
+    // the output lands at vendor/hnsd/hnsd and zig-out/bin/hnsd, and
+    // src/network/hns/spv.zig's `auto` binary search checks
+    // vendor/hnsd/hnsd first (repo-relative, for `zig build run` from the
+    // repo root) ahead of PATH.
+    buildHnsdStep(b);
+}
+
+fn buildHnsdStep(b: *Build) void {
+    const src_dir = "vendor/hnsd";
+
+    // autotools bootstrap (aclocal/autoconf/autoheader/automake). Idempotent;
+    // re-running it is harmless.
+    const autogen = b.addSystemCommand(&.{"./autogen.sh"});
+    autogen.setCwd(b.path(src_dir));
+
+    // libunbound is a hard `configure` requirement (it errors out if not
+    // found). Homebrew installs it keg-only (unlinked), so point configure
+    // at the keg directly when it's present; Linux's apt `libunbound-dev`
+    // installs into the default search path and needs no extra flag, so the
+    // shell test below falls through to plain `./configure` there.
+    const configure = b.addSystemCommand(&.{
+        "sh", "-c",
+        \\for p in /opt/homebrew/opt/unbound /usr/local/opt/unbound; do
+        \\  if [ -d "$p" ]; then exec ./configure --with-unbound="$p"; fi
+        \\done
+        \\exec ./configure
+        ,
+    });
+    configure.setCwd(b.path(src_dir));
+    configure.step.dependOn(&autogen.step);
+
+    const make = b.addSystemCommand(&.{ "make", "-j" });
+    make.setCwd(b.path(src_dir));
+    make.step.dependOn(&configure.step);
+    // hnsd's own Makefile has no notion of Zig's cache graph, so this step
+    // always re-runs `make` (fast/no-op when already built); it does not
+    // re-run autogen/configure once configure's outputs exist.
+
+    const install = b.addInstallBinFile(b.path(src_dir ++ "/hnsd"), "hnsd");
+    install.step.dependOn(&make.step);
+
+    const hnsd_step = b.step(
+        "hnsd",
+        "Build vendored hnsd (vendor/hnsd, MIT, pinned commit) — requires autoconf/automake/libtool/pkg-config + libunbound; not part of the default build",
+    );
+    hnsd_step.dependOn(&install.step);
 }
 
 fn linkV8(

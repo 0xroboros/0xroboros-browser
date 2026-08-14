@@ -1,0 +1,45 @@
+name: Test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build-windows-latest:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          path-type: inherit
+          update: true
+          install: git mingw-w64-x86_64-toolchain base-devel mingw-w64-x86_64-unbound autotools
+
+      - run: git config --global core.autocrlf input
+        shell: bash
+
+      - uses: actions/checkout@v2
+
+      - name: Build
+        run: ./autogen.sh && ./configure --with-network=regtest && make
+
+      - name: Unit Tests
+        run: ./test_hnsd
+
+      - name: Setup Integration
+        uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          check-latest: true
+
+      - name: Integration Tests
+        working-directory: ./integration
+        run: |
+          npm install
+          npm run test

@@ -85,6 +85,21 @@ fn logLevelValidator(_: Allocator, args: *std.process.Args.Iterator, target: *?l
     };
 }
 
+/// The canonical HNS resolution selector (see --hns-resolver below).
+/// `spv` is the default: local hnsd SPV verification first, with an
+/// automatic session fallback to the trusted DoH lane when SPV is
+/// unavailable at startup. `doh` skips SPV and uses the trusted DoH lane
+/// directly. `off` disables HNS resolution entirely (plain OS resolution).
+pub const HnsResolverMode = enum { spv, doh, off };
+
+fn hnsResolverValidator(_: Allocator, args: *std.process.Args.Iterator, target: *?HnsResolverMode) !void {
+    const str = args.next() orelse return error.MissingArgument;
+    target.* = std.meta.stringToEnum(HnsResolverMode, str) orelse {
+        log.fatal(.app, "invalid option choice", .{ .arg = "--hns-resolver", .value = str });
+        return error.InvalidArgument;
+    };
+}
+
 const Cert = struct {
     /// On successful CLI argument parsing phase, ownership of this transferred
     /// to `Network`. Consider it as invalid.
@@ -179,12 +194,22 @@ const CommonOptions = .{
     .{ .name = "obey_robots", .type = bool },
     .{ .name = "proxy_bearer_token", .type = ?[:0]const u8 },
     .{ .name = "http_proxy", .type = ?[:0]const u8 },
+    // Master HNS lane selector. `spv` (default): local hnsd SPV verification
+    // first, automatic same-session fallback to the trusted DoH lane when
+    // SPV cannot start (no peers, sync failure), loudly logged. `doh`:
+    // trusted DoH lane only, SPV never attempted. `off`: plain OS
+    // resolution, unchanged. See --hns-spv / --hns-doh-url below for the
+    // finer-grained knobs each lane still accepts (attach to a specific spv
+    // daemon, pin a specific DoH endpoint); those remain available and are
+    // read normally under whichever lane --hns-resolver selects.
+    .{ .name = "hns_resolver", .type = ?HnsResolverMode, .validator = hnsResolverValidator },
     // Handshake name resolution via DNS-over-HTTPS (TRUSTED resolution: the
     // resolver is not verified by this client). `off` disables HNS resolution
     // (plain OS resolution). Unset selects the built-in public default; see
     // src/network/hns/doh.zig. Interim by design: at Lane S kickoff, local
     // SPV verification (hnsd) becomes the default resolution path and DoH
-    // drops to fallback.
+    // drops to fallback. Superseded as the primary switch by --hns-resolver;
+    // kept for pinning an explicit endpoint or forcing this lane's own off.
     .{ .name = "hns_doh_url", .type = ?[:0]const u8 },
     // DANE/TLSA checking for names resolved through the HNS lane (Lane D).
     // Accepts "off" to disable; any other value (or unset) leaves it on.
@@ -524,6 +549,17 @@ pub fn httpProxy(self: *const Config) ?[:0]const u8 {
     return switch (self.mode) {
         inline .serve, .fetch, .mcp, .agent => |opts| opts.http_proxy,
         .version => null,
+        else => unreachable,
+    };
+}
+
+/// The master HNS lane selector (--hns-resolver). Defaults to `.spv`: SPV is
+/// the browser's default resolution path (item 3, Lane S). `.version` mode
+/// never touches the network, so it reports `.off`.
+pub fn hnsResolver(self: *const Config) HnsResolverMode {
+    return switch (self.mode) {
+        inline .serve, .fetch, .mcp, .agent => |opts| opts.hns_resolver orelse .spv,
+        .version => .off,
         else => unreachable,
     };
 }
