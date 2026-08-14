@@ -32,6 +32,9 @@ const HttpClient = @import("../../network/HttpClient.zig");
 const Cache = @import("../../network/cache/Cache.zig");
 const Headers = @import("../../network/HttpClient.zig").Headers;
 const Transfer = @import("../../network/HttpClient.zig").Transfer;
+const Network = @import("../../network/Network.zig");
+const hns_tlsa = @import("../../network/hns/tlsa.zig");
+const hns_verdict = @import("../../network/hns/verdict.zig");
 
 const CdpStorage = @import("storage.zig");
 
@@ -332,6 +335,20 @@ pub fn httpRequestFail(bc: *CDP.BrowserContext, msg: *const Notification.Request
     // notification is tied to), without a frame.
     lp.assert(bc.session.hasPage(), "CDP.network.httpRequestFail null frame", .{});
 
+    // Agent verdict surface (Lane V), additive only: fail-closed
+    // inheritance (standing law) — a DANE mismatch that blocked this
+    // connection is reported as blocked, with the evidence, never silently
+    // folded into a generic error string. Absent for every other failure
+    // reason and every ICANN name.
+    const arena = bc.notification_arena;
+    var hns_verdict_field: ?hns_verdict.Verdict = null;
+    if (msg.err == error.PeerFailedVerification) {
+        if (hnsHostFromUrl(msg.transfer.req.url)) |host| {
+            const path = hns_verdict.resolutionPathFor(host);
+            hns_verdict_field = hns_verdict.fromBlockedConnection(arena, host, path, &msg.transfer._dane) catch null;
+        }
+    }
+
     // We're missing a bunch of fields, but, for now, this seems like enough
     try bc.cdp.sendEvent("Network.loadingFailed", .{
         .requestId = &id.toRequestId(msg.transfer),
@@ -341,6 +358,7 @@ pub fn httpRequestFail(bc: *CDP.BrowserContext, msg: *const Notification.Request
         .errorText = msg.err,
         .canceled = false,
         .blockedReason = msg.blocked_reason,
+        .hnsVerdict = hns_verdict_field,
     }, .{ .session_id = session_id });
 }
 
@@ -392,7 +410,7 @@ pub fn httpResponseHeaderDone(arena: Allocator, bc: *CDP.BrowserContext, msg: *c
         .loaderId = &id.toLoaderId(req.loader_id),
         .timestamp = lp.datetime.timestamp(.boot),
         .type = req.resource_type.string(),
-        .response = ResponseWriter.init(arena, msg.transfer),
+        .response = ResponseWriter.init(arena, msg.transfer, &bc.session.browser.app.network),
         .hasExtraInfo = false, // TODO change after adding Network.responseReceivedExtraInfo
     }, .{ .session_id = session_id });
 }
@@ -489,11 +507,13 @@ pub const RequestWriter = struct {
 const ResponseWriter = struct {
     arena: Allocator,
     transfer: *Transfer,
+    network: *const Network,
 
-    fn init(arena: Allocator, transfer: *Transfer) ResponseWriter {
+    fn init(arena: Allocator, transfer: *Transfer, network: *const Network) ResponseWriter {
         return .{
             .arena = arena,
             .transfer = transfer,
+            .network = network,
         };
     }
 
@@ -604,9 +624,41 @@ const ResponseWriter = struct {
             }
             try jws.endObject();
         }
+
+        // Agent verdict surface (Lane V), additive only: attach the
+        // hns-verdict/1 object this connection's own DANE state already
+        // proves, for names outside the ICANN root. Absent entirely for
+        // every ICANN response — the overwhelming majority of traffic sees
+        // byte-identical output to upstream. See verdict.zig
+        // (fromObservedConnection) for exactly what this can and can't
+        // distinguish on a passive, already-completed connection.
+        if (hnsHostFromUrl(transfer.req.url)) |host| {
+            const dane_enabled = self.network.config.tlsVerifyHost() and self.network.config.hnsDaneEnabled();
+            const path = hns_verdict.resolutionPathFor(host);
+            const verdict = hns_verdict.fromObservedConnection(self.arena, host, path, dane_enabled, &transfer._dane) catch null;
+            if (verdict) |v| {
+                try jws.objectField("hnsVerdict");
+                try jws.write(v);
+            }
+        }
         try jws.endObject();
     }
 };
+
+/// The HNS-checkable host from a request URL, or null when the URL doesn't
+/// parse or carries no host (never the case for a real HTTP(S) transfer,
+/// but this is a passive reporting path — fail closed to "no attachment"
+/// rather than erroring the response).
+fn hnsHostFromUrl(url: [:0]const u8) ?[]const u8 {
+    const uri = std.Uri.parse(url) catch return null;
+    const host_c = uri.host orelse return null;
+    const host = switch (host_c) {
+        .raw => |h| h,
+        .percent_encoded => |h| h,
+    };
+    if (!hns_tlsa.isHnsName(host)) return null;
+    return host;
+}
 
 fn initialPriority(resource_type: HttpClient.Request.ResourceType) []const u8 {
     return switch (resource_type) {
@@ -1136,4 +1188,43 @@ test "cdp.Network: worker requests emit network events" {
         .type = "Fetch",
         .request = .{ .url = api_url },
     }, .{ .session_id = "SID-NW" });
+}
+
+// Agent verdict surface (Lane V), CDP integration test: the additive
+// `hnsVerdict` field on Network.responseReceived (network.zig ResponseWriter)
+// must be entirely absent for a non-HNS response — "additive fields only,
+// nothing upstream-breaking" (phase 3, item 3). The fixture host is
+// 127.0.0.1 (an IPv4 literal — hns_tlsa.isHnsName excludes it outright, the
+// same discriminator the live DANE engine uses), so this is deterministic
+// without touching hnsd/DoH.
+test "cdp.Network: hnsVerdict is absent from ICANN/non-HNS responses" {
+    var ctx = try testing.context();
+    defer ctx.deinit();
+
+    // Network.enable must run before navigation for responseReceived events
+    // to be captured at all — mirrors the "worker requests" test above:
+    // create+configure the browser context, enable Network, only then load
+    // the page.
+    const cdp = ctx.cdp();
+    _ = try cdp.createBrowserContext();
+    var bc = &cdp.browser_context.?;
+    bc.id = "BID-HV";
+    bc.session_id = "SID-HV";
+    bc.target_id = "TID-HV-0000000".*;
+
+    try ctx.processMessage(.{ .id = 1, .method = "Network.enable" });
+    try ctx.expectSentResult(null, .{ .id = 1 });
+
+    const page_url = "http://127.0.0.1:9582/src/browser/tests/mcp_actions.html";
+    const page = try bc.session.createPage();
+    try page.navigate(page_url, .{});
+    try testing.waitForPage(bc);
+
+    try ctx.expectSentEvent("Network.responseReceived", .{
+        .response = .{ .url = page_url },
+    }, .{ .session_id = "SID-HV" });
+
+    for (ctx.received_raw.items) |raw| {
+        try testing.expect(std.mem.indexOf(u8, raw, "hnsVerdict") == null);
+    }
 }

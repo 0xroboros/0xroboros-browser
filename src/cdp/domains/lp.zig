@@ -24,6 +24,7 @@ const CDP = @import("../CDP.zig");
 const Node = @import("../Node.zig");
 const DOMNode = @import("../../browser/webapi/Node.zig");
 const Robots = @import("../../network/Robots.zig");
+const hns_verdict = @import("../../network/hns/verdict.zig");
 
 const markdown = lp.markdown;
 const SemanticTree = lp.SemanticTree;
@@ -38,6 +39,7 @@ pub fn processMessage(cmd: *CDP.Command) !void {
         getNodeDetails,
         getStructuredData,
         getContentSignal,
+        getHnsVerdict,
         detectForms,
         clickNode,
         fillNode,
@@ -56,6 +58,7 @@ pub fn processMessage(cmd: *CDP.Command) !void {
         .getNodeDetails => return getNodeDetails(cmd),
         .getStructuredData => return getStructuredData(cmd),
         .getContentSignal => return getContentSignal(cmd),
+        .getHnsVerdict => return getHnsVerdict(cmd),
         .detectForms => return detectForms(cmd),
         .clickNode => return clickNode(cmd),
         .fillNode => return fillNode(cmd),
@@ -244,6 +247,25 @@ fn getContentSignal(cmd: anytype) !void {
         .available = signals != null,
         .contentSignals = signals orelse empty,
     }, .{});
+}
+
+// Agent verdict surface (Lane V): resolve `name` and check its DANE/TLSA
+// binding WITHOUT fetching a page — resolution + TLSA check only. Returns a
+// signed hns-verdict/1 object; see verdict.zig for the full schema and the
+// MCP `verdict` tool (src/mcp/tools.zig) for the same primitive over that
+// surface.
+fn getHnsVerdict(cmd: anytype) !void {
+    const Params = struct {
+        name: []const u8,
+        port: ?u16 = null,
+    };
+    const params = (try cmd.params(Params)) orelse return error.InvalidParams;
+
+    const bc = cmd.browser_context orelse return error.NoBrowserContext;
+    const network = bc.cdp.browser.http_client.network;
+
+    const verdict = try hns_verdict.compute(cmd.arena, network, params.name, params.port orelse 443);
+    return cmd.sendResult(verdict, .{});
 }
 
 fn detectForms(cmd: anytype) !void {
@@ -513,6 +535,53 @@ test "cdp.lp: getContentSignal" {
     const result = (try ctx.getSentMessage(0)).?.object.get("result").?.object;
     try testing.expectEqual(false, result.get("available").?.bool);
     try testing.expect(result.get("contentSignals") != null);
+}
+
+// Agent verdict surface (Lane V), CDP integration test for the standalone
+// LP.getHnsVerdict command (phase 3, item 2 — the same "resolve + TLSA
+// check only" primitive as the MCP `verdict` tool, over CDP). Both
+// Handshake lanes are inactive under `zig build test` (hns_doh.select /
+// hns_spv.select both no-op — see doh.zig/spv.zig), so this is deterministic
+// without live hnsd/DoH infrastructure: resolution_path "os", dane.outcome
+// "off", verified false. Per-outcome coverage (matched/mismatch/absent/
+// lookup_failed, and the spv-vs-doh verified distinction) lives directly
+// against verdict.zig's pure builder, which this command is a thin wire
+// wrapper over.
+test "cdp.lp: getHnsVerdict" {
+    var ctx = try testing.context();
+    defer ctx.deinit();
+
+    _ = try ctx.loadBrowserContext(.{});
+
+    try ctx.processMessage(.{
+        .id = 1,
+        .method = "LP.getHnsVerdict",
+        .params = .{ .name = "web-a.endpoint.api.0xtestrun" },
+    });
+
+    const result = (try ctx.getSentMessage(0)).?.object.get("result").?.object;
+    try testing.expectEqualSlices(u8, "hns-verdict/1", result.get("schema").?.string);
+    try testing.expectEqualSlices(u8, "os", result.get("resolution_path").?.string);
+    try testing.expectEqualSlices(u8, "off", result.get("dane").?.object.get("outcome").?.string);
+    try testing.expectEqual(false, result.get("verified").?.bool);
+}
+
+test "cdp.lp: getHnsVerdict requires a name" {
+    var ctx = try testing.context();
+    defer ctx.deinit();
+
+    _ = try ctx.loadBrowserContext(.{});
+
+    try ctx.processMessage(.{
+        .id = 1,
+        .method = "LP.getHnsVerdict",
+        .params = .{ .port = 443 },
+    });
+    // `name` has no default, so the underlying std.json parse (cmd.params)
+    // rejects the missing required field before this handler's own
+    // `orelse return error.InvalidParams` (which only covers a params
+    // object being absent entirely) ever runs.
+    try ctx.expectSentError(-31998, "MissingField", .{ .id = 1 });
 }
 
 test "cdp.lp: action tools" {

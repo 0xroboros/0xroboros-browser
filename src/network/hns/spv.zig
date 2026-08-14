@@ -343,24 +343,36 @@ fn resolveOnce(host: []const u8, out: *Resolved) bool {
 /// arrive over the local SPV-validated channel. Requires AD; an unvalidated
 /// TLSA answer is treated as absent (fail-closed to CA validation).
 pub fn lookupTlsa(state: *tlsa.DaneState, host: []const u8, port: u16) u8 {
+    return switch (lookupTlsaDetailed(state, host, port)) {
+        .failed, .empty => 0,
+        .armed => |n| n,
+    };
+}
+
+/// Same lookup as `lookupTlsa`, reporting `tlsa.LookupOutcome` instead of
+/// collapsing failure and confirmed-absence into the same 0. See
+/// tlsa.LookupOutcome doc comment: the engine's own fail-closed behavior is
+/// unchanged either way; only the reporting is richer (the agent verdict
+/// surface, verdict.zig, is the consumer).
+pub fn lookupTlsaDetailed(state: *tlsa.DaneState, host: []const u8, port: u16) tlsa.LookupOutcome {
     tlsa.clear(state);
-    if (host.len > 253) return 0;
+    if (host.len > 253) return .failed;
 
     var qname_buf: [280]u8 = undefined;
-    const qname = std.fmt.bufPrint(&qname_buf, "_{d}._tcp.{s}", .{ port, host }) catch return 0;
+    const qname = std.fmt.bufPrint(&qname_buf, "_{d}._tcp.{s}", .{ port, host }) catch return .failed;
 
     var qbuf: [384]u8 = undefined;
     var rbuf: [8192]u8 = undefined;
     const msg = query(&qbuf, qname, tlsa.TYPE_TLSA, &rbuf) orelse {
         log.warn(.http, "hns spv tlsa failed", .{ .host = host });
-        return 0;
+        return .failed;
     };
 
     const flags = std.mem.readInt(u16, msg[2..4], .big);
-    if (flags & 0xf != 0) return 0;
+    if (flags & 0xf != 0) return .failed;
     if (flags & 0x20 == 0) {
         log.warn(.http, "hns spv tlsa unvalidated", .{ .host = host });
-        return 0;
+        return .failed;
     }
 
     const n = tlsa.parseTlsa(msg, state);
@@ -370,8 +382,79 @@ pub fn lookupTlsa(state: *tlsa.DaneState, host: []const u8, port: u16) u8 {
         state.verified = true;
         state.armed = true;
         log.info(.http, "hns dane armed", .{ .host = host, .records = n, .trust = "verified spv channel" });
+        return .{ .armed = n };
     }
-    return n;
+    return .empty;
+}
+
+/// hnsd's own SPV status, read over its local Hesiod-class status channel
+/// (vendor/hnsd/src/hesiod.c: `height.tip.chain.hnsd.` / `time.tip.chain.hnsd.`,
+/// class HS TXT). Used by the agent verdict surface as the spv-path
+/// "resolver detail" and evidence.proof reference — the locally-synced
+/// header chain to this height IS the SPV proof; this is a receipt
+/// pointing at it, not a re-derivation. Returns null when the lane isn't
+/// active or either query fails; a missing chain_time (the rarer of the
+/// two) doesn't invalidate the height.
+pub const ChainStatus = struct {
+    height: u64,
+    chain_time: ?i64 = null,
+};
+
+pub fn chainStatus() ?ChainStatus {
+    if (!active_state) return null;
+
+    var hqbuf: [80]u8 = undefined;
+    var hrbuf: [512]u8 = undefined;
+    const hmsg = queryHesiod(&hqbuf, "height.tip.chain.hnsd.", &hrbuf) orelse return null;
+    const htxt = extractFirstTxt(hmsg) orelse return null;
+    const height = std.fmt.parseInt(u64, htxt, 10) catch return null;
+
+    var tqbuf: [80]u8 = undefined;
+    var trbuf: [512]u8 = undefined;
+    const chain_time: ?i64 = blk: {
+        const tmsg = queryHesiod(&tqbuf, "time.tip.chain.hnsd.", &trbuf) orelse break :blk null;
+        const ttxt = extractFirstTxt(tmsg) orelse break :blk null;
+        break :blk std.fmt.parseInt(i64, ttxt, 10) catch null;
+    };
+
+    return .{ .height = height, .chain_time = chain_time };
+}
+
+fn queryHesiod(qbuf: []u8, qname: []const u8, rbuf: []u8) ?[]const u8 {
+    const q = tlsa.buildQueryClass(qbuf, qname, tlsa.TYPE_TXT, tlsa.CLASS_HESIOD) orelse return null;
+    return sendRecv(q, rbuf);
+}
+
+/// First TXT record's character-string content, or null on anything that
+/// doesn't parse as a single clean answer (not NOERROR, no answers, wrong
+/// type, malformed rdata).
+fn extractFirstTxt(msg: []const u8) ?[]const u8 {
+    if (msg.len < 12) return null;
+    const flags = std.mem.readInt(u16, msg[2..4], .big);
+    if (flags & 0xf != 0) return null;
+    const qd = std.mem.readInt(u16, msg[4..6], .big);
+    const an = std.mem.readInt(u16, msg[6..8], .big);
+    if (an == 0) return null;
+
+    var o: usize = 12;
+    var i: usize = 0;
+    while (i < qd) : (i += 1) {
+        o = (tlsa.skipName(msg, o) orelse return null) + 4;
+        if (o > msg.len) return null;
+    }
+
+    o = tlsa.skipName(msg, o) orelse return null;
+    if (o + 10 > msg.len) return null;
+    const rtype = std.mem.readInt(u16, msg[o..][0..2], .big);
+    const rdlen = std.mem.readInt(u16, msg[o + 8 ..][0..2], .big);
+    o += 10;
+    if (rdlen == 0 or o + rdlen > msg.len) return null;
+    if (rtype != tlsa.TYPE_TXT) return null;
+
+    const rdata = msg[o .. o + rdlen];
+    const txt_len = rdata[0];
+    if (1 + @as(usize, txt_len) > rdata.len) return null;
+    return rdata[1..][0..txt_len];
 }
 
 fn collectAddrs(msg: []const u8, want: u16, out: *Resolved) void {
@@ -428,7 +511,14 @@ fn query(qbuf: []u8, qname: []const u8, qtype: u16, rbuf: []u8) ?[]const u8 {
     const q = tlsa.buildQuery(qbuf, qname, qtype) orelse return null;
     // AD bit in the query: byte 3, bit 0x20.
     qbuf[3] |= 0x20;
+    return sendRecv(q, rbuf);
+}
 
+// Shared UDP send/receive against the hnsd address, used by both the
+// Handshake-name `query` above (IN class, AD requested) and the Hesiod
+// status `queryHesiod` (HS class, chainStatus below) — same socket, timeout,
+// and truncation handling either way.
+fn sendRecv(q: []const u8, rbuf: []u8) ?[]const u8 {
     const sock = sys_net.socket(sys_net.family(&addr), std.posix.SOCK.DGRAM, std.posix.IPPROTO.UDP) catch return null;
     defer _ = std.c.close(sock);
     setTimeouts(sock);
