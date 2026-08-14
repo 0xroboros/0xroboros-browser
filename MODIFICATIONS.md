@@ -202,14 +202,23 @@ packaging only.
   0` before this phase) despite `actions/permissions` reporting
   `enabled: true` and every workflow file in `active` state — the
   well-documented GitHub fork gate (Actions disabled on a freshly forked
-  repo until a human or a workflow run first "wakes" them). A manual
-  `gh workflow run zig-test.yml` in this phase queued successfully; whether
-  that also clears the gate for future automatic `push`/`pull_request`
-  triggers going forward is not yet re-tested against a real PR. Until
-  confirmed, treat `workflow_dispatch` as the reliable way to run this
-  fork's workflows, and `fork-release.yml`'s manual-dispatch trigger is not
-  a fallback of convenience — it may be the only trigger that reliably
-  fires.
+  repo until a human or a workflow run first "wakes" them). **Resolved,
+  confirmed in this same phase**: a manual `gh workflow run zig-test.yml`
+  queued successfully, and this phase's own PR (#7) then auto-triggered
+  `zig-test`, `e2e-test`, `plumber`, and `CLA Assistant` on push/PR events
+  for the first time ever on this repo — the gate is cleared going forward.
+  `fork-release.yml` still keeps `workflow_dispatch` as a trigger alongside
+  `push: tags`, as a deliberate belt-and-suspenders given this history, not
+  because it's still the only option.
+- This phase also confirmed `plumber` (the repo's supply-chain scanner,
+  previously assumed as structurally inert on this fork as `CLA Assistant`
+  is) genuinely runs and gates on real findings: it caught `fork-release.
+  yml`'s four new `docker/*` actions as both unpinned and off the
+  `trustedGithubActions` allowlist (8 high-severity findings, score D) —
+  fixed for real (SHA-pinned, allowlisted) rather than waived. `CLA
+  Assistant` remains genuinely inapplicable to this fork's own PRs (no CLA
+  bot configured for this repo) — see the phase result's trademark report
+  for the related `CONTRIBUTING.md`/`CLA.md` routing-confusion finding.
 - The multi-arch OCI image build is single-job, QEMU-emulated for the
   non-native arch inside the `docker/build-push-action` step (`docker/
   setup-qemu-action`), matching the upstream Dockerfile's own
