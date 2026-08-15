@@ -84,7 +84,9 @@ jobs:
 
   build-image:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The multi-arch OCI build compiles zig+V8+hnsd under QEMU for arm64;
+    # the first v0.1.1 run was killed at exactly 45m. 150 gives real headroom.
+    timeout-minutes: 150
     permissions:
       contents: read
       packages: write
