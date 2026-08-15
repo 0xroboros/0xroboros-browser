@@ -112,12 +112,12 @@ build-dev:
 ## Run the server in release mode
 run: build
 	@printf "\033[36mRunning...\033[0m\n"
-	@./zig-out/bin/lightpanda || (printf "\033[33mRun ERROR\033[0m\n"; exit 1;)
+	@./zig-out/bin/0xroboros-browser || (printf "\033[33mRun ERROR\033[0m\n"; exit 1;)
 
 ## Run the server in debug mode
 run-debug: build-dev
 	@printf "\033[36mRunning...\033[0m\n"
-	@./zig-out/bin/lightpanda || (printf "\033[33mRun ERROR\033[0m\n"; exit 1;)
+	@./zig-out/bin/0xroboros-browser || (printf "\033[33mRun ERROR\033[0m\n"; exit 1;)
 
 test:
 	TEST_FILTER="${F}" $(ZIG) build $(ZIGFLAGS) test -freference-trace
@@ -132,7 +132,7 @@ end2end:
 ## without one only the deterministic layer runs. See ../demo/agent/README.md.
 test-agent:
 	@test -d ../demo
-	@test -x zig-out/bin/lightpanda || $(MAKE) build
+	@test -x zig-out/bin/0xroboros-browser || $(MAKE) build
 	@cd ../demo && ./agent/run.sh $(LAYER)
 
 ## Remove build artifacts (keeps .lp-cache/ and zig-pkg/ — slow to re-fetch)

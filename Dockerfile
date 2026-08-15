@@ -117,7 +117,7 @@ FROM debian:stable-slim
 
 ARG VERSION=dev
 
-LABEL org.opencontainers.image.title="0xroboros-browser" \
+LABEL org.opencontainers.image.title="0xroboros Browser" \
       org.opencontainers.image.description="Agent-drivable headless browser with native Handshake (HNS) name resolution and DANE/TLSA authentication. AGPL-3.0-only fork of lightpanda-io/browser; not affiliated with or endorsed by Lightpanda (Selecy SAS)." \
       org.opencontainers.image.source="https://github.com/0x13omb3r/0xroboros-browser" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
@@ -131,7 +131,7 @@ RUN apt-get update -yq && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
-COPY --from=build /browser/zig-out/bin/lightpanda /bin/lightpanda
+COPY --from=build /browser/zig-out/bin/0xroboros-browser /bin/0xroboros-browser
 COPY --from=build /browser/vendor/hnsd/hnsd /bin/hnsd
 COPY --from=build /browser/LICENSE /LICENSE
 COPY --from=build /browser/MODIFICATIONS.md /MODIFICATIONS.md
@@ -160,4 +160,4 @@ ENTRYPOINT ["/usr/bin/tini", "--"]
 # Documented default mode for this image: MCP over HTTP, HNS resolution via
 # the local SPV lane (hnsd, verified) with the shipped DoH fallback list
 # (src/network/hns/doh.zig) used only if the SPV sidecar cannot start.
-CMD ["/bin/lightpanda", "mcp", "--host", "0.0.0.0", "--port", "9223", "--hns-resolver", "spv", "--hnsd-path", "/bin/hnsd"]
+CMD ["/bin/0xroboros-browser", "mcp", "--host", "0.0.0.0", "--port", "9223", "--hns-resolver", "spv", "--hnsd-path", "/bin/hnsd"]

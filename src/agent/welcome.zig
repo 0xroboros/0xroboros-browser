@@ -69,7 +69,7 @@ comptime {
     // add a commit count + hash), so asserting it would break the build over an
     // input this file doesn't own.
     const fixed = [_][]const u8{
-        "Lightpanda Agent",
+        "0xroboros Browser Agent",
         banner_tagline_llm,
         banner_tagline_basic,
         banner_setup,
@@ -87,7 +87,7 @@ pub fn print(llm_active: bool) void {
 
     var lines: [9][]const u8 = undefined;
     var n: usize = 0;
-    lines[n] = ansi.bold ++ "Lightpanda Agent" ++ ansi.reset;
+    lines[n] = ansi.bold ++ "0xroboros Browser Agent" ++ ansi.reset;
     n += 1;
     lines[n] = version;
     n += 1;

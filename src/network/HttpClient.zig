@@ -3370,7 +3370,7 @@ test "HttpClient: Transfer.setHeader replaces by case-insensitive name" {
         .start_time = 0,
     };
 
-    try transfer.addHeader("User-Agent", "Lightpanda/1.0", .{});
+    try transfer.addHeader("User-Agent", "0xroboros-Browser/1.0", .{});
     try transfer.addHeader("X-Twice", "a", .{});
     try transfer.addHeader("x-twice", "b", .{});
 

@@ -33,9 +33,9 @@ jobs:
       - name: upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: lightpanda-build-release
+          name: 0xroboros-browser-build-release
           path: |
-            zig-out/bin/lightpanda
+            zig-out/bin/0xroboros-browser
           retention-days: 1
 
   agent-regression:
@@ -52,19 +52,19 @@ jobs:
           repository: 'lightpanda-io/demo'
           fetch-depth: 0
 
-      - name: download lightpanda release
+      - name: download 0xroboros-browser release
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: lightpanda-build-release
+          name: 0xroboros-browser-build-release
           path: bin
 
-      - run: chmod a+x bin/lightpanda
+      - run: chmod a+x bin/0xroboros-browser
 
       - name: run agent regression suite (deterministic + live)
         # Explicit bash gets pipefail, so tee doesn't mask the suite's exit code.
         shell: bash
         env:
-          LPD_PATH: ${{ github.workspace }}/bin/lightpanda
+          LPD_PATH: ${{ github.workspace }}/bin/0xroboros-browser
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LP_MODEL: ${{ github.event.inputs.model }}
           # Optional: news.ycombinator.com often blocks datacenter IPs. Reuse

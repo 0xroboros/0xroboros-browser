@@ -865,7 +865,7 @@ pub const WaitUntil = enum {
 /// HTTP header values shared across Http and Client.
 /// Must be initialized with an allocator that outlives all HTTP connections.
 pub const HttpHeaders = struct {
-    const user_agent_base: [:0]const u8 = "Lightpanda/1.0";
+    const user_agent_base: [:0]const u8 = "0xroboros-Browser/1.0";
 
     const Brand = struct {
         brand: [:0]const u8,
@@ -876,7 +876,7 @@ pub const HttpHeaders = struct {
     /// HTTP header and navigator.userAgentData.brands derive from this
     /// list, so the two sides cannot drift.
     pub const brands = [_]Brand{
-        .{ .brand = "Lightpanda", .version = "1" },
+        .{ .brand = "0xroboros Browser", .version = "1" },
     };
 
     pub const sec_ch_ua: [:0]const u8 = blk: {
@@ -897,7 +897,7 @@ pub const HttpHeaders = struct {
     // Document-navigation Accept value Chrome sends.
     pub const navigation_accept: [:0]const u8 = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
 
-    user_agent: [:0]const u8, // User agent value (e.g. "Lightpanda/1.0")
+    user_agent: [:0]const u8, // User agent value (e.g. "0xroboros-Browser/1.0")
 
     proxy_bearer_header: ?[:0]const u8,
 

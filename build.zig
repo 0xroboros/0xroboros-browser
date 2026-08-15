@@ -44,7 +44,7 @@ pub fn build(b: *Build) !void {
     const wpt_extensions = b.option(bool, "wpt_extensions", "Extend WebAPI with WPT driver behavior") orelse false;
 
     const version = resolveVersion(b);
-    std.debug.print("Lightpanda {f}\n", .{version});
+    std.debug.print("0xroboros Browser {f}\n", .{version});
 
     const version_string = b.fmt("{f}", .{version});
     const version_encoded = std.mem.replaceOwned(u8, b.allocator, version_string, "+", "%2B") catch @panic("OOM");
@@ -111,7 +111,7 @@ pub fn build(b: *Build) !void {
     {
         // browser
         const exe = b.addExecutable(.{
-            .name = "lightpanda",
+            .name = "0xroboros-browser",
             .use_llvm = true,
             .root_module = b.createModule(.{
                 .root_source_file = b.path("src/main.zig"),

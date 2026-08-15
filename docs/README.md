@@ -1,3 +1,8 @@
+<p><picture>
+<source media="(prefers-color-scheme: dark)" srcset="../assets/brand/0xroboros-wordmark_white_transparent.svg">
+<img src="../assets/brand/0xroboros-wordmark_ink_transparent.svg" alt="0xroboros" height="36">
+</picture> <strong>Browser</strong></p>
+
 # Docs
 
 This is a community fork of [lightpanda-io/browser](https://github.com/lightpanda-io/browser)

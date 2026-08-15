@@ -148,7 +148,7 @@
     console.warn('Pending count:', Array.from(async_pending.keys()));
   }
 
-  const IS_TEST_RUNNER = window.navigator.userAgent.startsWith("Lightpanda/");
+  const IS_TEST_RUNNER = window.navigator.userAgent.startsWith("0xroboros-Browser/");
 
   window.testing = {
     fail: fail,
