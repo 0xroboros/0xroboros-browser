@@ -35,7 +35,7 @@ jobs:
         with:
           name: lightpanda-build-release
           path: |
-            zig-out/bin/lightpanda
+            zig-out/bin/0xroboros-browser
           retention-days: 1
 
   agent-regression:
@@ -64,7 +64,7 @@ jobs:
         # Explicit bash gets pipefail, so tee doesn't mask the suite's exit code.
         shell: bash
         env:
-          LPD_PATH: ${{ github.workspace }}/bin/lightpanda
+          LPD_PATH: ${{ github.workspace }}/bin/0xroboros-browser
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           LP_MODEL: ${{ github.event.inputs.model }}
           # Optional: news.ycombinator.com often blocks datacenter IPs. Reuse

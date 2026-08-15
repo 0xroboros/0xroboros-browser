@@ -60,7 +60,7 @@ jobs:
         with:
           name: lightpanda-build-release
           path: |
-            zig-out/bin/lightpanda
+            zig-out/bin/0xroboros-browser
           retention-days: 1
 
   demo-runner:
@@ -428,7 +428,7 @@ jobs:
       # runs separately in agent-regression.yml.
       - name: deterministic agent replay
         env:
-          LPD_PATH: ${{ github.workspace }}/bin/lightpanda
+          LPD_PATH: ${{ github.workspace }}/bin/0xroboros-browser
         run: ./agent/run.sh deterministic
 
   mcp-smoke:

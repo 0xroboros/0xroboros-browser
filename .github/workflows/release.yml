@@ -68,7 +68,7 @@ jobs:
         run: zig build -Dsnapshot_path=../../snapshot.bin -Dprebuilt_v8_path=v8/libc_v8.a -Doptimize=ReleaseFast ${{ matrix.cpu_flag }} ${{ env.VERSION_FLAG }}
 
       - name: Rename binary
-        run: mv zig-out/bin/lightpanda lightpanda-${{ env.ARCH }}-${{ env.OS }}
+        run: mv zig-out/bin/0xroboros-browser lightpanda-${{ env.ARCH }}-${{ env.OS }}
 
       - name: upload on s3
         run: |
@@ -129,7 +129,7 @@ jobs:
         run: zig build -Dsnapshot_path=../../snapshot.bin -Dprebuilt_v8_path=v8/libc_v8.a -Doptimize=ReleaseFast ${{ env.VERSION_FLAG }}
 
       - name: Rename binary
-        run: mv zig-out/bin/lightpanda lightpanda-${{ env.ARCH }}-${{ env.OS }}
+        run: mv zig-out/bin/0xroboros-browser lightpanda-${{ env.ARCH }}-${{ env.OS }}
 
       - name: upload on s3
         run: |

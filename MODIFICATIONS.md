@@ -279,3 +279,31 @@ semantics, or any existing passing behavior — confirmed by the full test
 suite staying green (see the phase 4 result record) and by an ICANN
 regression grep on the diff (`ssl_verify|insecure|verify_host|CURLOPT_SSL`:
 zero hits).
+
+## Product name (phase 6, founder-ruled 2026-08-15)
+
+The product shipped from this fork is named **0xroboros Browser** (ruling
+recorded in the 0xroboros dispatch channel; program of 2026-08-14). The
+GitHub repository name stays `0xroboros-browser`. Upstream Lightpanda
+copyright headers, license attribution, and the engine lineage statement
+remain untouched — the rename covers only this fork's own product surfaces:
+
+| Surface | Now |
+|---|---|
+| Binary filename (`build.zig` executable) | `zig-out/bin/0xroboros-browser` (internal zig module ids unchanged) |
+| Build banner | `0xroboros Browser <version>` |
+| Agent REPL banner (`src/agent/welcome.zig`) | `0xroboros Browser Agent` |
+| MCP `serverInfo.name` | `0xroboros Browser` |
+| HTTP `User-Agent` / UA base (`src/Config.zig`, `src/network/HttpClient.zig`) | `0xroboros-Browser/1.0` (RFC 9110 product token: space → hyphen) |
+| Client-hints brand (`Sec-Ch-Ua` + `navigator.userAgentData.brands`) | `0xroboros Browser` |
+| CDP `/json/version` (`src/Server.zig`) | `Browser`/`User-Agent`: `0xroboros-Browser/1.0`; version key `0xroboros-Browser-Version` |
+| README + docs mastheads | company wordmark asset (`assets/brand/`, §B tight viewBox) + the word "Browser" set in type; the company name is never set in type |
+| OCI image title label | `0xroboros Browser` (image name stays `ghcr.io/0x13omb3r/0xroboros-browser`) |
+| Release artifacts (`fork-release.yml`) | `0xroboros-browser-<arch>-<os>` + checksums |
+| All build/workflow/docs paths | `zig-out/bin/0xroboros-browser`, `/bin/0xroboros-browser` |
+
+Behavior note: renaming the User-Agent product token means robots.txt
+groups addressed to `Lightpanda` no longer match this browser; groups
+addressed to `0xroboros-Browser` now do. This is inherent to any UA rename
+and is the only behavioral consequence; the test suite passes with
+unchanged counts.

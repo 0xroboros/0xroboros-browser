@@ -5,7 +5,7 @@
   // Navigator should be accessible from window
   testing.expectEqual(navigator, window.navigator);
   testing.expectEqual(true, navigator.userAgent.length > 0);
-  testing.expectEqual(true, navigator.userAgent.includes('Lightpanda'));
+  testing.expectEqual(true, navigator.userAgent.includes('0xroboros-Browser'));
   testing.expectEqual('Netscape', navigator.appName);
   testing.expectEqual('1.0', navigator.appVersion);
   testing.expectEqual(true, navigator.platform.length > 0);
@@ -110,7 +110,7 @@
   testing.expectEqual(true, validUAPlatforms.includes(navigator.userAgentData.platform));
 
   testing.expectEqual(1, navigator.userAgentData.brands.length);
-  testing.expectEqual({brand: 'Lightpanda', version: "1"}, navigator.userAgentData.brands[0]);
+  testing.expectEqual({brand: '0xroboros Browser', version: "1"}, navigator.userAgentData.brands[0]);
 
   // Same instance returned on repeated access
   testing.expectEqual(true, navigator.userAgentData === navigator.userAgentData);
@@ -119,7 +119,7 @@
   testing.expectEqual(false, json.mobile);
   testing.expectEqual(navigator.userAgentData.platform, json.platform);
   testing.expectEqual(true, Array.isArray(json.brands));
-  testing.expectEqual('Lightpanda', json.brands[0].brand);
+  testing.expectEqual('0xroboros Browser', json.brands[0].brand);
 </script>
 
 <script id=userAgentData_highEntropy type=module>
@@ -135,7 +135,7 @@
       testing.expectEqual(navigator.userAgentData.platform, v.platform);
       testing.expectEqual(true, Array.isArray(v.brands));
       testing.expectEqual(true, Array.isArray(v.fullVersionList));
-      testing.expectEqual('Lightpanda', v.fullVersionList[0].brand);
+      testing.expectEqual('0xroboros Browser', v.fullVersionList[0].brand);
       testing.expectEqual('1.0.0.0', v.uaFullVersion);
       testing.expectEqual(false, v.wow64);
       testing.expectEqual(true, Array.isArray(v.formFactor));

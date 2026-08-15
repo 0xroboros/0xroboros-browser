@@ -219,7 +219,7 @@ pub fn handleInitialize(self: *Self, req: protocol.Request) !void {
             .resources = .{},
             .tools = .{},
         },
-        .serverInfo = .{ .name = "lightpanda", .version = "0.1.0" },
+        .serverInfo = .{ .name = "0xroboros Browser", .version = "0.1.0" },
         .instructions = lp.tools.driver_guidance,
     });
 }

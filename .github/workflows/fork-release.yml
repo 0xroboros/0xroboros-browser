@@ -70,14 +70,14 @@ jobs:
 
       - name: Rename + checksum
         run: |
-          mv zig-out/bin/lightpanda lightpanda-${{ env.ARCH }}-${{ env.OS }}
-          shasum -a 256 lightpanda-${{ env.ARCH }}-${{ env.OS }} > lightpanda-${{ env.ARCH }}-${{ env.OS }}.sha256
+          mv zig-out/bin/0xroboros-browser 0xroboros-browser-${{ env.ARCH }}-${{ env.OS }}
+          shasum -a 256 0xroboros-browser-${{ env.ARCH }}-${{ env.OS }} > 0xroboros-browser-${{ env.ARCH }}-${{ env.OS }}.sha256
 
       - name: Attach to release
         uses: ncipollo/release-action@339a81892b84b4eeb0f6e744e4574d79d0d9b8dd # v1.21.0
         with:
           allowUpdates: true
-          artifacts: "lightpanda-${{ env.ARCH }}-${{ env.OS }},lightpanda-${{ env.ARCH }}-${{ env.OS }}.sha256"
+          artifacts: "0xroboros-browser-${{ env.ARCH }}-${{ env.OS }},0xroboros-browser-${{ env.ARCH }}-${{ env.OS }}.sha256"
           tag: ${{ env.RELEASE_TAG }}
           omitBodyDuringUpdate: true
           omitNameDuringUpdate: true

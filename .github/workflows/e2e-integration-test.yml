@@ -34,7 +34,7 @@ jobs:
         with:
           name: lightpanda-build-release
           path: |
-            zig-out/bin/lightpanda
+            zig-out/bin/0xroboros-browser
           retention-days: 1
 
   demo-scripts:

@@ -33,13 +33,13 @@ docker run --rm -p 9223:9223 ghcr.io/0x13omb3r/0xroboros-browser:latest
 An agent (or `curl`) can now POST JSON-RPC to `http://localhost:9223/mcp`.
 See [quickstart.md](quickstart.md) for a first call.
 
-Every flag documented below (`docker run ... /bin/lightpanda mcp --help`
+Every flag documented below (`docker run ... /bin/0xroboros-browser mcp --help`
 inside the container, or `lightpanda mcp --help` on a binary) also applies
 inside the image — override the image's default `CMD` to change them, e.g.
 to run over stdio instead:
 
 ```sh
-docker run --rm -i --entrypoint /bin/lightpanda \
+docker run --rm -i --entrypoint /bin/0xroboros-browser \
   ghcr.io/0x13omb3r/0xroboros-browser:latest mcp
 ```
 
@@ -74,7 +74,7 @@ prebuilt sidecar is all that's needed.
 ```sh
 git clone https://github.com/0x13omb3r/0xroboros-browser.git
 cd 0xroboros-browser
-make build          # lightpanda binary at zig-out/bin/lightpanda
+make build          # lightpanda binary at zig-out/bin/0xroboros-browser
 make hnsd           # optional: the vendored SPV sidecar, needs autotools + libunbound
 make test           # full test suite
 ```

@@ -569,8 +569,8 @@ pub fn isAllowed(self: *const Robots, path: []const u8) bool {
     return true;
 }
 
-/// RFC 9309-ish product token. So if our UA is Lightpanda/1.0, we'll match
-/// "Lightpanda". Also allos digits, since those are also common used
+/// RFC 9309-ish product token. So if our UA is 0xroboros-Browser/1.0, we'll match
+/// "0xroboros-Browser". Also allos digits, since those are also common used
 fn productToken(user_agent: []const u8) []const u8 {
     for (user_agent, 0..) |c, i| {
         if (std.ascii.isAlphanumeric(c) == false and c != '-' and c != '_') {

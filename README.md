@@ -1,10 +1,14 @@
 <p align="center">
-  <a href="https://lightpanda.io"><img src="https://cdn.lightpanda.io/assets/images/logo/lpd-logo.png" alt="Logo" height=170></a>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/brand/0xroboros-wordmark_white_transparent.svg">
+    <img src="assets/brand/0xroboros-wordmark_ink_transparent.svg" alt="0xroboros" height="56">
+  </picture>
 </p>
-<h1 align="center">Lightpanda Browser</h1>
+<h1 align="center">Browser</h1>
 <p align="center">
-<strong>The headless browser built from scratch for AI agents and automation.</strong><br>
-Not a Chromium fork. Not a WebKit patch. A new browser, written in Zig.
+<strong>The agent-drivable headless browser with native Handshake (HNS) name resolution.</strong><br>
+Verified SPV resolution, DANE/TLSA authentication, and an agent verdict surface — on the Lightpanda engine.<br>
+AGPL-3.0-only fork of <a href="https://github.com/lightpanda-io/browser">lightpanda-io/browser</a>; not affiliated with or endorsed by Lightpanda (Selecy SAS).
 </p>
 
 </div>

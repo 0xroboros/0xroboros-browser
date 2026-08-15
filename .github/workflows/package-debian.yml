@@ -52,7 +52,7 @@ jobs:
           ROOT="lightpanda_${PKGVER}_${DEB_ARCH}"
           mkdir -p "$ROOT/DEBIAN" "$ROOT/usr/bin" "$ROOT/usr/share/doc/lightpanda"
 
-          install -m755 "lightpanda-${ARCH}-${OS}" "$ROOT/usr/bin/lightpanda"
+          install -m755 "lightpanda-${ARCH}-${OS}" "$ROOT/usr/bin/0xroboros-browser"
           install -m644 LICENSE "$ROOT/usr/share/doc/lightpanda/copyright"
 
           cat > "$ROOT/DEBIAN/control" <<EOF
