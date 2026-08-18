@@ -24,6 +24,9 @@ every diff against upstream is enumerated in [`../MODIFICATIONS.md`](../MODIFICA
 - **[UPSTREAM-SYNC.md](UPSTREAM-SYNC.md)** — how this fork keeps tracking
   upstream: the pull-only policy, the merge-and-verify procedure, and the
   sync cadence.
+- **[LICENSE-POSTURE.md](LICENSE-POSTURE.md)** — the architectural boundary
+  between this AGPL-3.0 codebase and 0xroboros's own proprietary work
+  (internal position record, not legal advice).
 
 For everything else — the full CLI surface (`serve`/`fetch`/`mcp`/`agent`/
 `run`), development setup, testing — see [`../README.md`](../README.md)
