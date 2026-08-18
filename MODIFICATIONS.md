@@ -307,3 +307,21 @@ groups addressed to `Lightpanda` no longer match this browser; groups
 addressed to `0xroboros-Browser` now do. This is inherent to any UA rename
 and is the only behavioral consequence; the test suite passes with
 unchanged counts.
+
+## Docs-truth pass + go-public copy (2026-08-18)
+
+Documentation only — no product code changed:
+
+- `README.md` — added the "Why this exists" positioning block (verbatim from the
+  founder-ratified go-public package; vocabulary law applied: `verified` only for
+  SPV-path results, everything else labeled TRUSTED) after the masthead; renamed
+  the remaining bare `lightpanda` CLI-invocation examples and the MCP config
+  snippet to `0xroboros-browser` (16 replacements). Upstream Lightpanda project
+  references (AUR package, Docker Hub image, org links) untouched.
+- `docs/install.md` — release-asset download examples now name the actual
+  `0xroboros-browser-<arch>-<os>` artifacts (7 replacements, including the
+  self-contradictory "lightpanda binary at zig-out/bin/0xroboros-browser" comment).
+- `docs/quickstart.md` (3) and `docs/resolvers.md` (2) — invocation examples
+  renamed the same way.
+- The empty v0.1.1 GitHub Release body was set (repo-owner edit, not a commit)
+  to the ratified release notes from the same package.

@@ -29,6 +29,14 @@ AGPL-3.0-only fork of <a href="https://github.com/lightpanda-io/browser">lightpa
 ](https://github.com/lightpanda-io/demo)
 </div>
 
+## Why this exists
+
+The web is increasingly a place machines transact in directly, not only a place humans browse. An agent deciding whether to trust a name it has never seen before needs more than a page load — it needs evidence: which resolution path answered, whether that answer is chain-anchored or a resolver's word taken as given, and whether the certificate presented actually matches what the name's owner published. A `200 OK` is not evidence of any of that.
+
+0xroboros Browser resolves Handshake (HNS) names — owner-held namespaces outside the ICANN root — through a local SPV chain sync by default, and authenticates their TLS connections against on-chain DANE/TLSA records rather than a certificate authority. Every resolution and every DANE check can be returned as an `hns-verdict/1` object over MCP or CDP: agents get a structured, evidence-carrying verdict, not just page bytes.
+
+The distinction held to throughout this fork: `verified` means the local chain sync produced the answer — nothing else is trusted in the path. Everything else is TRUSTED — a remote party's word, taken as given, and labeled as such every time. This implements Handshake's own DANE specification lineage, HIP-0007 and HIP-0017, rather than a new trust model invented here; see [docs/resolvers.md](docs/resolvers.md) for the full picture.
+
 ## Benchmarks
 
 Requesting 933 real web pages over the network on a AWS EC2 m5.large instance.
@@ -64,12 +72,12 @@ Linux and MacOS for both x86_64 and aarch64.
 *For Linux*
 ```console
 curl -L -o lightpanda https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux && \
-chmod a+x ./lightpanda
+chmod a+x ./0xroboros-browser
 ```
 
 Verify the binary before running anything:
 ```console
-./lightpanda version
+./0xroboros-browser version
 ```
 
 [Linux aarch64 is also available](https://github.com/lightpanda-io/browser/releases/tag/nightly)
@@ -79,7 +87,7 @@ Verify the binary before running anything:
 *For MacOS*
 ```console
 curl -L -o lightpanda https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-macos && \
-chmod a+x ./lightpanda
+chmod a+x ./0xroboros-browser
 ```
 
 [MacOS x86_64 is also available](https://github.com/lightpanda-io/browser/releases/tag/nightly)
@@ -116,7 +124,7 @@ available to adjust waiting time before dump.
 ### Start a CDP server
 
 ```console
-./lightpanda serve --obey-robots --log-format pretty  --log-level info --host 127.0.0.1 --port 9222
+./0xroboros-browser serve --obey-robots --log-format pretty  --log-level info --host 127.0.0.1 --port 9222
 ```
 Once the CDP server started, you can run a Puppeteer script by configuring the
 `browserWSEndpoint`.
@@ -155,7 +163,7 @@ await browser.disconnect();
 
 ### Agent mode
 
-`lightpanda agent` lets you drive the browser with a native agent. Describe what
+`0xroboros-browser agent` lets you drive the browser with a native agent. Describe what
 you want in plain English or with slash commands, and it controls the browser:
 navigating pages, clicking through flows, filling forms, extracting structured
 data. Think of it as a robot you're directing to use the web, more than a
@@ -168,7 +176,7 @@ The output of an agent session is a
 [PandaScript](https://lightpanda.io/docs/usage/pandascript): vanilla JavaScript
 with a small set of native browser primitives built directly into Lightpanda.
 Run `/save` to export one from your current session, then replay it with
-`lightpanda agent <script>.js`. Scripts are deterministic and token-free, so
+`0xroboros-browser agent <script>.js`. Scripts are deterministic and token-free, so
 you can prototype with the LLM and ship the output to production without a
 model at runtime.
 
@@ -179,13 +187,13 @@ which drops you into the REPL. See the
 reference.
 
 ```console
-./lightpanda agent                                    # auto-detects API key from env
-./lightpanda agent --task "top story on news.ycombinator.com?"
-./lightpanda agent --no-llm                           # basic REPL, no LLM
-./lightpanda agent session.js                         # run a recorded script
-./lightpanda agent --provider gemini --task "..."     # force a specific provider
-VERTEX_API_KEY=... ./lightpanda agent --provider vertex             # Vertex AI, express mode
-GOOGLE_CLOUD_PROJECT=my-proj ./lightpanda agent --provider vertex   # Vertex AI, token via gcloud auth
+./0xroboros-browser agent                                    # auto-detects API key from env
+./0xroboros-browser agent --task "top story on news.ycombinator.com?"
+./0xroboros-browser agent --no-llm                           # basic REPL, no LLM
+./0xroboros-browser agent session.js                         # run a recorded script
+./0xroboros-browser agent --provider gemini --task "..."     # force a specific provider
+VERTEX_API_KEY=... ./0xroboros-browser agent --provider vertex             # Vertex AI, express mode
+GOOGLE_CLOUD_PROJECT=my-proj ./0xroboros-browser agent --provider vertex   # Vertex AI, token via gcloud auth
 ```
 
 ### Native MCP and skill
@@ -196,8 +204,8 @@ Add to your MCP configuration:
 ```json
 {
   "mcpServers": {
-    "lightpanda": {
-      "command": "/path/to/lightpanda",
+    "0xroboros-browser": {
+      "command": "/path/to/0xroboros-browser",
       "args": ["mcp"]
     }
   }
@@ -211,7 +219,7 @@ instead of stdio by giving it a port (add `--host x.x.x.x` to specify the
 interface to listen on):
 
 ```bash
-lightpanda mcp --port 9223
+0xroboros-browser mcp --port 9223
 ```
 
 Clients POST JSON-RPC to `http://host:9223/mcp`. Each connection is routed to

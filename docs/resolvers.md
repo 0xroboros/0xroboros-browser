@@ -3,7 +3,7 @@
 This fork resolves names outside the ICANN root (Handshake/HNS names)
 through one of two lanes, selected by `--hns-resolver <spv|doh|off>`
 (default `spv` when the HNS lane is active). Both are documented in full in
-`lightpanda <serve|fetch|mcp|agent> --help` under the `--hns-*` /
+`0xroboros-browser <serve|fetch|mcp|agent> --help` under the `--hns-*` /
 `--hnsd-path` options; this page is the endpoint-list and fallback-behavior
 reference the CLI help intentionally keeps short.
 
@@ -74,5 +74,5 @@ fork's own DoH startup probe already queries (see
 fork's own infrastructure:
 
 ```sh
-lightpanda fetch --dump markdown https://nathan.woodburn/
+0xroboros-browser fetch --dump markdown https://nathan.woodburn/
 ```

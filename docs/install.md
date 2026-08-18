@@ -34,7 +34,7 @@ An agent (or `curl`) can now POST JSON-RPC to `http://localhost:9223/mcp`.
 See [quickstart.md](quickstart.md) for a first call.
 
 Every flag documented below (`docker run ... /bin/0xroboros-browser mcp --help`
-inside the container, or `lightpanda mcp --help` on a binary) also applies
+inside the container, or `0xroboros-browser mcp --help` on a binary) also applies
 inside the image — override the image's default `CMD` to change them, e.g.
 to run over stdio instead:
 
@@ -50,11 +50,11 @@ for `linux/amd64`, `linux/arm64`, and `macos/arm64`, each with a `.sha256`
 checksum file alongside it:
 
 ```sh
-curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>
-curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>.sha256
-shasum -a 256 -c lightpanda-<arch>-<os>.sha256
-chmod +x lightpanda-<arch>-<os>
-./lightpanda-<arch>-<os> --help
+curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/0xroboros-browser-<arch>-<os>
+curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/0xroboros-browser-<arch>-<os>.sha256
+shasum -a 256 -c 0xroboros-browser-<arch>-<os>.sha256
+chmod +x 0xroboros-browser-<arch>-<os>
+./0xroboros-browser-<arch>-<os> --help
 ```
 
 Binary substitutions: `<arch>` is `x86_64` or `aarch64`; `<os>` is `linux`
@@ -74,7 +74,7 @@ prebuilt sidecar is all that's needed.
 ```sh
 git clone https://github.com/0xroboros/0xroboros-browser.git
 cd 0xroboros-browser
-make build          # lightpanda binary at zig-out/bin/0xroboros-browser
+make build          # 0xroboros-browser binary at zig-out/bin/0xroboros-browser
 make hnsd           # optional: the vendored SPV sidecar, needs autotools + libunbound
 make test           # full test suite
 ```

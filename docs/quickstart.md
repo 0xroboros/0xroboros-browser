@@ -10,7 +10,7 @@ binary or image, and [resolvers.md](resolvers.md) for what "TRUSTED" vs
 ## 1. One HNS fetch
 
 ```sh
-lightpanda fetch --dump markdown https://nathan.woodburn/
+0xroboros-browser fetch --dump markdown https://nathan.woodburn/
 ```
 
 With the default `--hns-resolver=spv`, the first line of stderr shows the
@@ -34,7 +34,7 @@ the CDP `LP.getHnsVerdict` command wrap. Full schema and a worked example:
 Start the MCP server over HTTP (matches the OCI image's default `CMD`):
 
 ```sh
-lightpanda mcp --host 0.0.0.0 --port 9223 --hns-resolver spv
+0xroboros-browser mcp --host 0.0.0.0 --port 9223 --hns-resolver spv
 ```
 
 Session routing follows the `Mcp-Session-Id` header (`src/mcp/HttpServer.zig`):
@@ -70,5 +70,5 @@ expected to read `absent`, not `matched`.
   behavior, and the TRUSTED-vs-verified vocabulary.
 - [hns-agent-verdicts.md](hns-agent-verdicts.md) — the full `hns-verdict/1`
   schema, the MCP/CDP surfaces, and a DANE-matched worked example.
-- `lightpanda <command> --help` for every flag (`serve`, `fetch`, `mcp`,
+- `0xroboros-browser <command> --help` for every flag (`serve`, `fetch`, `mcp`,
   `agent`, `run`).
