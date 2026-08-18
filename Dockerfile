@@ -119,7 +119,7 @@ ARG VERSION=dev
 
 LABEL org.opencontainers.image.title="0xroboros Browser" \
       org.opencontainers.image.description="Agent-drivable headless browser with native Handshake (HNS) name resolution and DANE/TLSA authentication. AGPL-3.0-only fork of lightpanda-io/browser; not affiliated with or endorsed by Lightpanda (Selecy SAS)." \
-      org.opencontainers.image.source="https://github.com/0x13omb3r/0xroboros-browser" \
+      org.opencontainers.image.source="https://github.com/0xroboros/0xroboros-browser" \
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.version="${VERSION}"
 
