@@ -21,6 +21,9 @@ every diff against upstream is enumerated in [`../MODIFICATIONS.md`](../MODIFICA
 - **[hns-agent-verdicts.md](hns-agent-verdicts.md)** — the `hns-verdict/1`
   schema agents get back from the MCP `verdict` tool and the CDP
   `LP.getHnsVerdict` command: full field reference and a worked example.
+- **[UPSTREAM-SYNC.md](UPSTREAM-SYNC.md)** — how this fork keeps tracking
+  upstream: the pull-only policy, the merge-and-verify procedure, and the
+  sync cadence.
 
 For everything else — the full CLI surface (`serve`/`fetch`/`mcp`/`agent`/
 `run`), development setup, testing — see [`../README.md`](../README.md)
