@@ -16,9 +16,9 @@ Multi-arch (`linux/amd64`, `linux/arm64`), published to GHCR on every
 tagged release:
 
 ```sh
-docker pull ghcr.io/0x13omb3r/0xroboros-browser:latest
+docker pull ghcr.io/0xroboros/0xroboros-browser:latest
 # or pin an exact release:
-docker pull ghcr.io/0x13omb3r/0xroboros-browser:vX.Y.Z
+docker pull ghcr.io/0xroboros/0xroboros-browser:vX.Y.Z
 ```
 
 Default command (see [`../Dockerfile`](../Dockerfile)): starts the MCP
@@ -27,7 +27,7 @@ server over HTTP on port 9223, HNS resolution on via the local SPV lane
 cannot start (see [resolvers.md](resolvers.md)).
 
 ```sh
-docker run --rm -p 9223:9223 ghcr.io/0x13omb3r/0xroboros-browser:latest
+docker run --rm -p 9223:9223 ghcr.io/0xroboros/0xroboros-browser:latest
 ```
 
 An agent (or `curl`) can now POST JSON-RPC to `http://localhost:9223/mcp`.
@@ -40,18 +40,18 @@ to run over stdio instead:
 
 ```sh
 docker run --rm -i --entrypoint /bin/0xroboros-browser \
-  ghcr.io/0x13omb3r/0xroboros-browser:latest mcp
+  ghcr.io/0xroboros/0xroboros-browser:latest mcp
 ```
 
 ## Platform binaries
 
-Published on the [GitHub Releases page](https://github.com/0x13omb3r/0xroboros-browser/releases)
+Published on the [GitHub Releases page](https://github.com/0xroboros/0xroboros-browser/releases)
 for `linux/amd64`, `linux/arm64`, and `macos/arm64`, each with a `.sha256`
 checksum file alongside it:
 
 ```sh
-curl -LO https://github.com/0x13omb3r/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>
-curl -LO https://github.com/0x13omb3r/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>.sha256
+curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>
+curl -LO https://github.com/0xroboros/0xroboros-browser/releases/download/vX.Y.Z/lightpanda-<arch>-<os>.sha256
 shasum -a 256 -c lightpanda-<arch>-<os>.sha256
 chmod +x lightpanda-<arch>-<os>
 ./lightpanda-<arch>-<os> --help
@@ -72,7 +72,7 @@ prebuilt sidecar is all that's needed.
 ## Building from source
 
 ```sh
-git clone https://github.com/0x13omb3r/0xroboros-browser.git
+git clone https://github.com/0xroboros/0xroboros-browser.git
 cd 0xroboros-browser
 make build          # lightpanda binary at zig-out/bin/0xroboros-browser
 make hnsd           # optional: the vendored SPV sidecar, needs autotools + libunbound
@@ -84,8 +84,8 @@ See [`../CONTRIBUTING.md`](../CONTRIBUTING.md) for the full dev setup.
 ## Verifying what you're running
 
 Every image and binary is built directly from a tagged commit of
-[`0x13omb3r/0xroboros-browser`](https://github.com/0x13omb3r/0xroboros-browser)
+[`0xroboros/0xroboros-browser`](https://github.com/0xroboros/0xroboros-browser)
 — the public source for exactly what is shipped, including every AGPL
 modification (see [`../MODIFICATIONS.md`](../MODIFICATIONS.md)). The image
 carries this pointer as an OCI label (`org.opencontainers.image.source`,
-`docker inspect ghcr.io/0x13omb3r/0xroboros-browser:latest`).
+`docker inspect ghcr.io/0xroboros/0xroboros-browser:latest`).
